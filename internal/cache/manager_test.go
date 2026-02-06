@@ -161,6 +161,49 @@ func TestManager_CacheKeys(t *testing.T) {
 	if key != expected {
 		t.Errorf("Expected %s, got %s", expected, key)
 	}
+
+	// Test item detail key
+	itemID := 19976
+	key = m.GetItemDetailKey(itemID)
+	expected = "item:detail:19976"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test TP price key
+	key = m.GetTPPriceKey(19976)
+	expected = "tp:price:19976"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test TP listing key
+	key = m.GetTPListingKey(19976)
+	expected = "tp:listing:19976"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test TP exchange key
+	key = m.GetTPExchangeKey("coins", 100000)
+	expected = "tp:exchange:coins:100000"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test TP delivery key
+	key = m.GetTPDeliveryKey("abcd1234")
+	expected = "tp:delivery:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test TP transaction key
+	key = m.GetTPTransactionKey("abcd1234", "current/buys")
+	expected = "tp:transactions:abcd1234:current/buys"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
 }
 
 func TestManager_TTLExpiration(t *testing.T) {
