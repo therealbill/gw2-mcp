@@ -125,6 +125,81 @@ func (s *MCPServer) registerTools() {
 	)
 
 	s.mcp.AddTool(currencyTool, s.handleGetCurrencies)
+
+	// Trading Post prices tool
+	tpPricesTool := mcp.NewTool(
+		"get_tp_prices",
+		mcp.WithDescription("Get Trading Post prices for items. Returns aggregated best buy/sell prices with item names and formatted coin values."),
+		mcp.WithArray(
+			"item_ids",
+			mcp.Required(),
+			mcp.Description("Array of item IDs to get prices for (e.g., [19976, 19721] for Mystic Coin and Glob of Ectoplasm)"),
+		),
+	)
+
+	s.mcp.AddTool(tpPricesTool, s.handleGetTPPrices)
+
+	// Trading Post listings tool
+	tpListingsTool := mcp.NewTool(
+		"get_tp_listings",
+		mcp.WithDescription("Get Trading Post order book listings for items. Returns all buy/sell price tiers with quantities."),
+		mcp.WithArray(
+			"item_ids",
+			mcp.Required(),
+			mcp.Description("Array of item IDs to get listings for"),
+		),
+	)
+
+	s.mcp.AddTool(tpListingsTool, s.handleGetTPListings)
+
+	// Gem exchange tool
+	gemExchangeTool := mcp.NewTool(
+		"get_gem_exchange",
+		mcp.WithDescription("Get gem exchange rates. Convert coins to gems or gems to coins."),
+		mcp.WithString(
+			"direction",
+			mcp.Required(),
+			mcp.Description("Exchange direction: 'coins' (coins to gems) or 'gems' (gems to coins)"),
+		),
+		mcp.WithNumber(
+			"quantity",
+			mcp.Required(),
+			mcp.Description("Amount to convert (coins in copper, or number of gems)"),
+		),
+	)
+
+	s.mcp.AddTool(gemExchangeTool, s.handleGetGemExchange)
+
+	// Trading Post delivery tool
+	tpDeliveryTool := mcp.NewTool(
+		"get_tp_delivery",
+		mcp.WithDescription("Get items and coins awaiting pickup from the Trading Post. Requires API key with account and tradingpost scopes."),
+		mcp.WithString(
+			"api_key",
+			mcp.Required(),
+			mcp.Description("Guild Wars 2 API key with account and tradingpost scopes"),
+		),
+	)
+
+	s.mcp.AddTool(tpDeliveryTool, s.handleGetTPDelivery)
+
+	// Trading Post transactions tool
+	tpTransactionsTool := mcp.NewTool(
+		"get_tp_transactions",
+		mcp.WithDescription("Get Trading Post transaction history. View current orders or completed transactions from the past 90 days. Requires API key with account and tradingpost scopes."),
+		mcp.WithString(
+			"api_key",
+			mcp.Required(),
+			mcp.Description("Guild Wars 2 API key with account and tradingpost scopes"),
+		),
+		mcp.WithString(
+			"type",
+			mcp.Required(),
+			mcp.Description("Transaction type: 'current/buys', 'current/sells', 'history/buys', or 'history/sells'"),
+		),
+	)
+
+	s.mcp.AddTool(tpTransactionsTool, s.handleGetTPTransactions)
 }
 
 // registerResources registers all available resources
