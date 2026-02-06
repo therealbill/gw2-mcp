@@ -29,6 +29,16 @@ const (
 
 	// WalletKey is the cache key template for wallet data (short TTL)
 	WalletKey Key = "wallet:%s" // %s = hashed API key
+
+	// ItemDetailKey is the cache key template for individual item details
+	ItemDetailKey Key = "item:detail:%d" // %d = item ID
+
+	// Trading Post cache keys
+	TPPriceKey       Key = "tp:price:%d"          // %d = item ID
+	TPListingKey     Key = "tp:listing:%d"         // %d = item ID
+	TPExchangeKey    Key = "tp:exchange:%s:%d"     // %s = direction, %d = quantity
+	TPDeliveryKey    Key = "tp:delivery:%s"        // %s = hashed API key
+	TPTransactionKey Key = "tp:transactions:%s:%s" // %s = hashed API key, %s = type
 )
 
 // Cache durations
@@ -39,6 +49,16 @@ const (
 
 	// Dynamic data - shorter cache periods
 	WalletDataTTL = 5 * time.Minute // 5 minutes for wallet data
+
+	// Item metadata - semi-static
+	ItemDataTTL = 24 * time.Hour // 1 day for item metadata
+
+	// Trading Post data - dynamic
+	TPPriceTTL       = 5 * time.Minute  // Prices change frequently
+	TPListingTTL     = 5 * time.Minute  // Listings change frequently
+	TPExchangeTTL    = 10 * time.Minute // Exchange rates less volatile
+	TPDeliveryTTL    = 2 * time.Minute  // Users want fresh delivery info
+	TPTransactionTTL = 5 * time.Minute  // Matches API-side cache
 
 	// Default cleanup interval
 	CleanupInterval = 10 * time.Minute
@@ -131,4 +151,34 @@ func (m *Manager) GetWikiPageKey(title string) string {
 // GetWalletKey returns the cache key for wallet data
 func (m *Manager) GetWalletKey(apiKeyHash string) string {
 	return fmt.Sprintf(string(WalletKey), apiKeyHash)
+}
+
+// GetItemDetailKey returns the cache key for item metadata
+func (m *Manager) GetItemDetailKey(id int) string {
+	return fmt.Sprintf(string(ItemDetailKey), id)
+}
+
+// GetTPPriceKey returns the cache key for TP price data
+func (m *Manager) GetTPPriceKey(itemID int) string {
+	return fmt.Sprintf(string(TPPriceKey), itemID)
+}
+
+// GetTPListingKey returns the cache key for TP listing data
+func (m *Manager) GetTPListingKey(itemID int) string {
+	return fmt.Sprintf(string(TPListingKey), itemID)
+}
+
+// GetTPExchangeKey returns the cache key for gem exchange rates
+func (m *Manager) GetTPExchangeKey(direction string, quantity int) string {
+	return fmt.Sprintf(string(TPExchangeKey), direction, quantity)
+}
+
+// GetTPDeliveryKey returns the cache key for delivery box
+func (m *Manager) GetTPDeliveryKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(TPDeliveryKey), apiKeyHash)
+}
+
+// GetTPTransactionKey returns the cache key for transaction history
+func (m *Manager) GetTPTransactionKey(apiKeyHash string, txType string) string {
+	return fmt.Sprintf(string(TPTransactionKey), apiKeyHash, txType)
 }
