@@ -53,6 +53,34 @@ type WalletInfo struct {
 	Total      int              `json:"total_currencies"`
 }
 
+// Item represents basic item metadata from /v2/items
+type Item struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Rarity string `json:"rarity"`
+	Level  int    `json:"level"`
+	Icon   string `json:"icon"`
+}
+
+// FormatCoins converts copper coins to a human-readable string (e.g., "1g 50s 35c")
+func FormatCoins(copper int) string {
+	gold := copper / 10000
+	silver := (copper % 10000) / 100
+	cop := copper % 100
+
+	parts := []string{}
+	if gold > 0 {
+		parts = append(parts, fmt.Sprintf("%dg", gold))
+	}
+	if silver > 0 || gold > 0 {
+		parts = append(parts, fmt.Sprintf("%ds", silver))
+	}
+	parts = append(parts, fmt.Sprintf("%dc", cop))
+
+	return strings.Join(parts, " ")
+}
+
 // NewClient creates a new GW2 API client
 func NewClient(cacheManager *cache.Manager, logger *log.Logger) *Client {
 	return &Client{
@@ -197,6 +225,41 @@ func (c *Client) getAllCurrencies(ctx context.Context) (map[int]Currency, error)
 	return currencies, nil
 }
 
+// GetItems retrieves item metadata for the given IDs
+func (c *Client) GetItems(ctx context.Context, ids []int) (map[int]Item, error) {
+	items := make(map[int]Item)
+	var missingIDs []int
+
+	// Check cache for each item
+	for _, id := range ids {
+		cacheKey := c.cache.GetItemDetailKey(id)
+		var item Item
+		if c.cache.GetJSON(cacheKey, &item) {
+			items[id] = item
+		} else {
+			missingIDs = append(missingIDs, id)
+		}
+	}
+
+	// Fetch missing items from API
+	if len(missingIDs) > 0 {
+		fetchedItems, err := c.fetchItems(ctx, missingIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch items: %w", err)
+		}
+
+		for _, item := range fetchedItems {
+			items[item.ID] = item
+			cacheKey := c.cache.GetItemDetailKey(item.ID)
+			if err := c.cache.SetJSON(cacheKey, item, cache.ItemDataTTL); err != nil {
+				c.logger.Warn("Failed to cache item", "id", item.ID, "error", err)
+			}
+		}
+	}
+
+	return items, nil
+}
+
 // fetchWallet makes the actual API call to get wallet data
 func (c *Client) fetchWallet(ctx context.Context, apiKey string) ([]WalletEntry, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/account/wallet", http.NoBody)
@@ -308,4 +371,45 @@ func (c *Client) fetchCurrencies(ctx context.Context, ids []int) ([]Currency, er
 	}
 
 	return currencies, nil
+}
+
+// fetchItems fetches item details for specific IDs from /v2/items
+func (c *Client) fetchItems(ctx context.Context, ids []int) ([]Item, error) {
+	idStrs := make([]string, len(ids))
+	for i, id := range ids {
+		idStrs[i] = strconv.Itoa(id)
+	}
+	idsParam := strings.Join(idStrs, ",")
+
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/items?ids="+idsParam, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			c.logger.Warn("Failed to close response body", "error", closeErr)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("API request failed with status %d and failed to read body: %w", resp.StatusCode, readErr)
+		}
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var items []Item
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+
+	return items, nil
 }
