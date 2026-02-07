@@ -2,13 +2,22 @@
 
 .PHONY: build clean test lint format deps run help
 
+# Detect Windows and set binary extension
+ifeq ($(OS),Windows_NT)
+  EXT := .exe
+else
+  EXT :=
+endif
+
+BINARY := bin/gw2-mcp$(EXT)
+
 # Default target
 all: format lint test build
 
 # Build the server
 build:
 	@echo "Building GW2 MCP Server..."
-	go build -o bin/gw2-mcp -ldflags "-s -w" ./
+	go build -o $(BINARY) -ldflags "-s -w" ./
 
 # Clean build artifacts
 clean:
@@ -42,7 +51,7 @@ deps:
 # Run the server
 run: build
 	@echo "Starting GW2 MCP Server..."
-	./bin/gw2-mcp
+	./$(BINARY)
 
 # Development run (with race detection)
 dev:
@@ -68,12 +77,16 @@ docs:
 # Release build (optimized)
 release:
 	@echo "Building release version..."
-	CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s -w -X main.version=$(shell git describe --tags --always)" -o bin/gw2-mcp ./
+ifeq ($(OS),Windows_NT)
+	set CGO_ENABLED=0&& go build -a -installsuffix cgo -ldflags "-s -w -X main.version=$(shell git describe --tags --always)" -o $(BINARY) ./
+else
+	CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s -w -X main.version=$(shell git describe --tags --always)" -o $(BINARY) ./
+endif
 
 # Docker build
 docker:
 	@echo "Building Docker image..."
-	docker build -t gw2-mcp:latest .
+	docker build --build-arg VERSION=$(shell git describe --tags --always) -t gw2-mcp:latest .
 
 # Show help
 help:

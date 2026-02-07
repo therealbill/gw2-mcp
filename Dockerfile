@@ -1,6 +1,8 @@
 # Build stage
 FROM golang:1.24-alpine AS builder
 
+ARG VERSION=dev
+
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
@@ -17,7 +19,9 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o gw2-mcp .
+RUN CGO_ENABLED=0 GOOS=linux go build -installsuffix cgo \
+    -ldflags "-s -w -X main.version=${VERSION}" \
+    -o gw2-mcp .
 
 # Final stage
 FROM scratch
@@ -33,9 +37,6 @@ COPY --from=builder /app/gw2-mcp /gw2-mcp
 
 # Set the timezone
 ENV TZ=UTC
-
-# Expose port (though MCP typically uses stdio)
-EXPOSE 8080
 
 # Add labels
 LABEL maintainer="AlyxPink"
