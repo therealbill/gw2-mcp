@@ -39,6 +39,42 @@ const (
 	TPExchangeKey    Key = "tp:exchange:%s:%d"     // %s = direction, %d = quantity
 	TPDeliveryKey    Key = "tp:delivery:%s"        // %s = hashed API key
 	TPTransactionKey Key = "tp:transactions:%s:%s" // %s = hashed API key, %s = type
+
+	// Account cache keys
+	AccountKey         Key = "account:%s"            // %s = hashed API key
+	BankKey            Key = "bank:%s"               // %s = hashed API key
+	MaterialsKey       Key = "materials:%s"          // %s = hashed API key
+	SharedInventoryKey Key = "inventory:%s"          // %s = hashed API key
+	CharactersKey      Key = "characters:%s"         // %s = hashed API key
+	CharacterKey       Key = "character:%s:%s"       // %s = hashed API key, %s = name
+	UnlocksKey         Key = "unlocks:%s:%s"         // %s = hashed API key, %s = type
+	ProgressKey        Key = "progress:%s:%s"        // %s = hashed API key, %s = type
+	DailiesKey         Key = "dailies:%s:%s"         // %s = hashed API key, %s = type
+
+	// Wizard's Vault cache keys
+	WizardsVaultSeasonKey     Key = "wv:season"           // no params
+	WizardsVaultObjectivesKey Key = "wv:objectives:%s:%s"  // %s = hashed API key (or "public"), %s = type
+	WizardsVaultListingsKey   Key = "wv:listings:%s"       // %s = hashed API key (or "public")
+
+	// Game data cache keys
+	SkinDetailKey      Key = "skin:detail:%d"       // %d = skin ID
+	RecipeDetailKey    Key = "recipe:detail:%d"      // %d = recipe ID
+	RecipeSearchKey    Key = "recipe:search:%s:%d"   // %s = direction (input/output), %d = item ID
+	AchievementKey     Key = "achievement:detail:%d" // %d = achievement ID
+	DailyAchievementKey Key = "achievements:daily"
+
+	// Guild cache keys
+	GuildInfoKey    Key = "guild:info:%s"       // %s = guild ID
+	GuildSearchKey  Key = "guild:search:%s"     // %s = guild name
+	GuildDetailKey  Key = "guild:detail:%s:%s"  // %s = guild ID, %s = type
+
+	// Metadata cache keys
+	ColorDetailKey     Key = "color:detail:%d"      // %d = color ID
+	MiniDetailKey      Key = "mini:detail:%d"       // %d = mini ID
+	MountDetailKey     Key = "mount:%s:detail:%d"   // %s = type (skins/types), %d = mount ID
+	GameBuildKey       Key = "game:build"
+	TokenInfoKey       Key = "tokeninfo:%s"         // %s = hashed API key
+	DungeonDetailKey   Key = "dungeon:detail:%s"    // %s = dungeon/raid ID
 )
 
 // Cache durations
@@ -59,6 +95,36 @@ const (
 	TPExchangeTTL    = 10 * time.Minute // Exchange rates less volatile
 	TPDeliveryTTL    = 2 * time.Minute  // Users want fresh delivery info
 	TPTransactionTTL = 5 * time.Minute  // Matches API-side cache
+
+	// Account data
+	AccountDataTTL = 5 * time.Minute
+	UnlocksTTL     = 10 * time.Minute
+	ProgressTTL    = 5 * time.Minute
+	DailiesTTL     = 2 * time.Minute
+
+	// Wizard's Vault
+	WVSeasonTTL          = 24 * time.Hour
+	WVObjectivesAuthTTL  = 5 * time.Minute
+	WVObjectivesPublicTTL = 1 * time.Hour
+	WVListingsTTL        = 1 * time.Hour
+
+	// Game data
+	RecipeDataTTL         = 24 * time.Hour
+	AchievementDataTTL    = 24 * time.Hour
+	DailyAchievementTTL   = 1 * time.Hour
+
+	// Guild
+	GuildInfoTTL   = 1 * time.Hour
+	GuildSearchTTL = 1 * time.Hour
+	GuildDetailTTL = 5 * time.Minute
+
+	// Metadata
+	ColorDataTTL    = 24 * time.Hour
+	MiniDataTTL     = 24 * time.Hour
+	MountDataTTL    = 24 * time.Hour
+	GameBuildTTL    = 1 * time.Hour
+	TokenInfoTTL    = 10 * time.Minute
+	DungeonDataTTL  = 24 * time.Hour
 
 	// Default cleanup interval
 	CleanupInterval = 10 * time.Minute
@@ -181,4 +247,134 @@ func (m *Manager) GetTPDeliveryKey(apiKeyHash string) string {
 // GetTPTransactionKey returns the cache key for transaction history
 func (m *Manager) GetTPTransactionKey(apiKeyHash string, txType string) string {
 	return fmt.Sprintf(string(TPTransactionKey), apiKeyHash, txType)
+}
+
+// GetAccountKey returns the cache key for account data
+func (m *Manager) GetAccountKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(AccountKey), apiKeyHash)
+}
+
+// GetBankKey returns the cache key for bank data
+func (m *Manager) GetBankKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(BankKey), apiKeyHash)
+}
+
+// GetMaterialsKey returns the cache key for material storage data
+func (m *Manager) GetMaterialsKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(MaterialsKey), apiKeyHash)
+}
+
+// GetSharedInventoryKey returns the cache key for shared inventory data
+func (m *Manager) GetSharedInventoryKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(SharedInventoryKey), apiKeyHash)
+}
+
+// GetCharactersKey returns the cache key for characters list
+func (m *Manager) GetCharactersKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(CharactersKey), apiKeyHash)
+}
+
+// GetCharacterKey returns the cache key for a specific character
+func (m *Manager) GetCharacterKey(apiKeyHash string, name string) string {
+	return fmt.Sprintf(string(CharacterKey), apiKeyHash, name)
+}
+
+// GetUnlocksKey returns the cache key for account unlocks
+func (m *Manager) GetUnlocksKey(apiKeyHash string, unlockType string) string {
+	return fmt.Sprintf(string(UnlocksKey), apiKeyHash, unlockType)
+}
+
+// GetProgressKey returns the cache key for account progress
+func (m *Manager) GetProgressKey(apiKeyHash string, progressType string) string {
+	return fmt.Sprintf(string(ProgressKey), apiKeyHash, progressType)
+}
+
+// GetDailiesKey returns the cache key for account dailies
+func (m *Manager) GetDailiesKey(apiKeyHash string, dailyType string) string {
+	return fmt.Sprintf(string(DailiesKey), apiKeyHash, dailyType)
+}
+
+// GetWizardsVaultSeasonKey returns the cache key for wizard's vault season info
+func (m *Manager) GetWizardsVaultSeasonKey() string {
+	return string(WizardsVaultSeasonKey)
+}
+
+// GetWizardsVaultObjectivesKey returns the cache key for wizard's vault objectives
+func (m *Manager) GetWizardsVaultObjectivesKey(apiKeyHash string, objType string) string {
+	return fmt.Sprintf(string(WizardsVaultObjectivesKey), apiKeyHash, objType)
+}
+
+// GetWizardsVaultListingsKey returns the cache key for wizard's vault listings
+func (m *Manager) GetWizardsVaultListingsKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(WizardsVaultListingsKey), apiKeyHash)
+}
+
+// GetSkinDetailKey returns the cache key for skin metadata
+func (m *Manager) GetSkinDetailKey(id int) string {
+	return fmt.Sprintf(string(SkinDetailKey), id)
+}
+
+// GetRecipeDetailKey returns the cache key for recipe metadata
+func (m *Manager) GetRecipeDetailKey(id int) string {
+	return fmt.Sprintf(string(RecipeDetailKey), id)
+}
+
+// GetRecipeSearchKey returns the cache key for recipe search
+func (m *Manager) GetRecipeSearchKey(direction string, itemID int) string {
+	return fmt.Sprintf(string(RecipeSearchKey), direction, itemID)
+}
+
+// GetAchievementKey returns the cache key for achievement metadata
+func (m *Manager) GetAchievementKey(id int) string {
+	return fmt.Sprintf(string(AchievementKey), id)
+}
+
+// GetDailyAchievementKey returns the cache key for daily achievements
+func (m *Manager) GetDailyAchievementKey() string {
+	return string(DailyAchievementKey)
+}
+
+// GetGuildInfoKey returns the cache key for guild info
+func (m *Manager) GetGuildInfoKey(guildID string) string {
+	return fmt.Sprintf(string(GuildInfoKey), guildID)
+}
+
+// GetGuildSearchKey returns the cache key for guild search
+func (m *Manager) GetGuildSearchKey(name string) string {
+	return fmt.Sprintf(string(GuildSearchKey), name)
+}
+
+// GetGuildDetailKey returns the cache key for guild details
+func (m *Manager) GetGuildDetailKey(guildID string, detailType string) string {
+	return fmt.Sprintf(string(GuildDetailKey), guildID, detailType)
+}
+
+// GetColorDetailKey returns the cache key for color metadata
+func (m *Manager) GetColorDetailKey(id int) string {
+	return fmt.Sprintf(string(ColorDetailKey), id)
+}
+
+// GetMiniDetailKey returns the cache key for mini metadata
+func (m *Manager) GetMiniDetailKey(id int) string {
+	return fmt.Sprintf(string(MiniDetailKey), id)
+}
+
+// GetMountDetailKey returns the cache key for mount metadata
+func (m *Manager) GetMountDetailKey(mountType string, id int) string {
+	return fmt.Sprintf(string(MountDetailKey), mountType, id)
+}
+
+// GetGameBuildKey returns the cache key for game build number
+func (m *Manager) GetGameBuildKey() string {
+	return string(GameBuildKey)
+}
+
+// GetTokenInfoKey returns the cache key for token info
+func (m *Manager) GetTokenInfoKey(apiKeyHash string) string {
+	return fmt.Sprintf(string(TokenInfoKey), apiKeyHash)
+}
+
+// GetDungeonDetailKey returns the cache key for dungeon/raid metadata
+func (m *Manager) GetDungeonDetailKey(id string) string {
+	return fmt.Sprintf(string(DungeonDetailKey), id)
 }

@@ -204,6 +204,188 @@ func TestManager_CacheKeys(t *testing.T) {
 	if key != expected {
 		t.Errorf("Expected %s, got %s", expected, key)
 	}
+
+	// Test account key
+	key = m.GetAccountKey("abcd1234")
+	expected = "account:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test bank key
+	key = m.GetBankKey("abcd1234")
+	expected = "bank:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test materials key
+	key = m.GetMaterialsKey("abcd1234")
+	expected = "materials:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test shared inventory key
+	key = m.GetSharedInventoryKey("abcd1234")
+	expected = "inventory:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test characters key
+	key = m.GetCharactersKey("abcd1234")
+	expected = "characters:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test character key
+	key = m.GetCharacterKey("abcd1234", "My Character")
+	expected = "character:abcd1234:My Character"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test unlocks key
+	key = m.GetUnlocksKey("abcd1234", "skins")
+	expected = "unlocks:abcd1234:skins"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test progress key
+	key = m.GetProgressKey("abcd1234", "achievements")
+	expected = "progress:abcd1234:achievements"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test dailies key
+	key = m.GetDailiesKey("abcd1234", "dungeons")
+	expected = "dailies:abcd1234:dungeons"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test wizard's vault season key
+	key = m.GetWizardsVaultSeasonKey()
+	expected = "wv:season"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test wizard's vault objectives key
+	key = m.GetWizardsVaultObjectivesKey("abcd1234", "daily")
+	expected = "wv:objectives:abcd1234:daily"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test wizard's vault listings key
+	key = m.GetWizardsVaultListingsKey("abcd1234")
+	expected = "wv:listings:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test skin detail key
+	key = m.GetSkinDetailKey(100)
+	expected = "skin:detail:100"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test recipe detail key
+	key = m.GetRecipeDetailKey(200)
+	expected = "recipe:detail:200"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test recipe search key
+	key = m.GetRecipeSearchKey("input", 19976)
+	expected = "recipe:search:input:19976"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test achievement key
+	key = m.GetAchievementKey(300)
+	expected = "achievement:detail:300"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test daily achievement key
+	key = m.GetDailyAchievementKey()
+	expected = "achievements:daily"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test guild info key
+	key = m.GetGuildInfoKey("guild-uuid-123")
+	expected = "guild:info:guild-uuid-123"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test guild search key
+	key = m.GetGuildSearchKey("Test Guild")
+	expected = "guild:search:Test Guild"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test guild detail key
+	key = m.GetGuildDetailKey("guild-uuid-123", "members")
+	expected = "guild:detail:guild-uuid-123:members"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test color detail key
+	key = m.GetColorDetailKey(400)
+	expected = "color:detail:400"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test mini detail key
+	key = m.GetMiniDetailKey(500)
+	expected = "mini:detail:500"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test mount detail key
+	key = m.GetMountDetailKey("skins", 600)
+	expected = "mount:skins:detail:600"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test game build key
+	key = m.GetGameBuildKey()
+	expected = "game:build"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test token info key
+	key = m.GetTokenInfoKey("abcd1234")
+	expected = "tokeninfo:abcd1234"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
+
+	// Test dungeon detail key
+	key = m.GetDungeonDetailKey("ascalonian_catacombs")
+	expected = "dungeon:detail:ascalonian_catacombs"
+	if key != expected {
+		t.Errorf("Expected %s, got %s", expected, key)
+	}
 }
 
 func TestManager_TTLExpiration(t *testing.T) {

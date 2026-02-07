@@ -35,8 +35,14 @@ func main() {
 		cancel()
 	}()
 
+	// Read API key from environment
+	apiKey := os.Getenv("GW2_API_KEY")
+	if apiKey == "" {
+		logger.Warn("GW2_API_KEY environment variable not set; authenticated endpoints will be unavailable")
+	}
+
 	// Create and start the MCP server
-	mcpServer, err := server.NewMCPServer(logger)
+	mcpServer, err := server.NewMCPServer(logger, apiKey)
 	if err != nil {
 		logger.Fatal("Failed to create MCP server", "error", err)
 	}

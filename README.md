@@ -7,16 +7,20 @@ A Model Context Provider (MCP) server for Guild Wars 2 that bridges Large Langua
 
 ## Features
 
+- **34 Tools** covering account, Trading Post, achievements, guilds, Wizard's Vault, game metadata, and more
 - **Wiki Search**: Search and retrieve content from the Guild Wars 2 wiki
-- **Wallet Information**: Access user wallet and currency data via GW2 API
+- **Account Data**: Wallet, bank, materials, shared inventory, characters, unlocks, progress, dailies
+- **Trading Post**: Prices, listings, gem exchange, delivery box, transaction history
+- **Game Data**: Items, skins, recipes, achievements, colors, minis, mounts, dungeons, raids
+- **Guild Tools**: Guild search, info, and authenticated detail endpoints
+- **Wizard's Vault**: Season info, objectives, and reward listings
 - **Smart Caching**: Efficient caching with appropriate TTL for static and dynamic data
-- **Rate Limiting**: Respectful API usage with built-in rate limiting
 - **Extensible Architecture**: Modular design for easy feature additions
 
 ## Requirements
 
-- Go 1.24 or higher
-- Guild Wars 2 API key (for wallet functionality)
+- Go 1.24 or higher (to build from source)
+- Guild Wars 2 API key (for authenticated tools — set via `GW2_API_KEY` environment variable)
 
 ## Installation
 
@@ -33,8 +37,24 @@ go mod tidy
 
 3. Build the server:
 ```bash
-go build -o gw2-mcp ./cmd/server
+make build
 ```
+
+## Configuration
+
+### API Key
+
+Set the `GW2_API_KEY` environment variable to enable authenticated tools:
+
+```bash
+export GW2_API_KEY="YOUR_KEY_HERE"
+```
+
+Create an API key at [Guild Wars 2 API Key Management](https://account.arena.net/applications) with the scopes you need (account, wallet, tradingpost, characters, inventories, unlocks, progression, guilds).
+
+If `GW2_API_KEY` is not set, the server still starts — unauthenticated tools work normally, and authenticated tools return a clear error message.
+
+See [docs/configuration.md](docs/configuration.md) for the full configuration guide.
 
 ## Usage
 
@@ -46,21 +66,35 @@ go build -o gw2-mcp ./cmd/server
 The MCP server communicates via stdio (standard input/output):
 
 ```bash
-./gw2-mcp
+GW2_API_KEY="YOUR_KEY_HERE" ./bin/gw2-mcp
 ```
 
-You can configure Claude Desktop, LM Studio, or other LLM tools to interact with the server using this configuration:
+Configure Claude Desktop, Claude Code, LM Studio, or other MCP clients:
+
+**Docker:**
 ```json
 {
   "mcpServers": {
     "gw2-mcp": {
       "command": "docker",
-      "args": [
-        "run",
-        "--rm",
-        "-i",
-        "alyxpink/gw2-mcp:v1"
-      ]
+      "args": ["run", "--rm", "-i", "-e", "GW2_API_KEY", "alyxpink/gw2-mcp:v1"],
+      "env": {
+        "GW2_API_KEY": "YOUR_KEY_HERE"
+      }
+    }
+  }
+}
+```
+
+**Direct binary:**
+```json
+{
+  "mcpServers": {
+    "gw2-mcp": {
+      "command": "/path/to/gw2-mcp",
+      "env": {
+        "GW2_API_KEY": "YOUR_KEY_HERE"
+      }
     }
   }
 }
@@ -68,60 +102,76 @@ You can configure Claude Desktop, LM Studio, or other LLM tools to interact with
 
 ### MCP Tools
 
-The server provides the following tools for LLM interaction:
+The server provides 34 tools for LLM interaction:
 
-#### 1. Wiki Search (`wiki_search`)
+#### Wiki
 
-Search the Guild Wars 2 wiki for information.
+| Tool | Auth | Description |
+|------|------|-------------|
+| `wiki_search` | No | Search the Guild Wars 2 wiki |
 
-**Parameters:**
-- `query` (required): Search query string
-- `limit` (optional): Maximum number of results (default: 5)
+#### Account
 
-**Example:**
-```json
-{
-  "tool": "wiki_search",
-  "arguments": {
-    "query": "Dragon Bash",
-    "limit": 3
-  }
-}
-```
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_account` | Yes | Account info (name, world, guilds, access) |
+| `get_wallet` | Yes | Wallet currencies and balances |
+| `get_bank` | Yes | Bank vault contents with item names |
+| `get_materials` | Yes | Material storage contents with item names |
+| `get_inventory` | Yes | Shared inventory slot contents |
+| `get_characters` | Yes | List characters or get details for one (optional `name` param) |
+| `get_account_unlocks` | Yes | Unlocked IDs by type (skins, dyes, minis, titles, recipes, etc.) |
+| `get_account_progress` | Yes | Progress data by type (achievements, masteries, luck, etc.) |
+| `get_account_dailies` | Yes | Completed dailies by type (crafting, dungeons, raids, etc.) |
+| `get_token_info` | Yes | API key name and permission scopes |
 
-#### 2. Get Wallet (`get_wallet`)
+#### Trading Post
 
-Retrieve user's wallet information including all currencies.
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_currencies` | No | Currency metadata (names, descriptions) |
+| `get_tp_prices` | No | Item prices (best buy/sell with coin formatting) |
+| `get_tp_listings` | No | Order book listings (all price tiers) |
+| `get_gem_exchange` | No | Gem-to-coin or coin-to-gem exchange rates |
+| `get_tp_delivery` | Yes | Delivery box contents (pending pickups) |
+| `get_tp_transactions` | Yes | Transaction history (current/buys, current/sells, history/buys, history/sells) |
 
-**Parameters:**
-- `api_key` (required): Guild Wars 2 API key with account scope
+#### Game Data
 
-**Example:**
-```json
-{
-  "tool": "get_wallet",
-  "arguments": {
-    "api_key": "YOUR_GW2_API_KEY"
-  }
-}
-```
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_items` | No | Item metadata (name, type, rarity, level) |
+| `get_skins` | No | Skin metadata (name, type, icon) |
+| `get_recipes` | No | Recipe details (output, ingredients, disciplines) |
+| `search_recipes` | No | Search recipes by input or output item ID |
+| `get_achievements` | No | Achievement details (name, description, requirements) |
+| `get_daily_achievements` | No | Today's and tomorrow's daily achievements |
 
-#### 3. Get Currencies (`get_currencies`)
+#### Wizard's Vault
 
-Get information about Guild Wars 2 currencies.
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_wizards_vault` | No | Current season info |
+| `get_wizards_vault_objectives` | Optional | Objectives (authenticated shows account progress) |
+| `get_wizards_vault_listings` | Optional | Reward listings (authenticated shows purchase status) |
 
-**Parameters:**
-- `ids` (optional): Array of specific currency IDs to fetch
+#### Guilds
 
-**Example:**
-```json
-{
-  "tool": "get_currencies",
-  "arguments": {
-    "ids": [1, 2, 3]
-  }
-}
-```
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_guild` | No | Public guild info (name, tag, level) |
+| `search_guild` | No | Search for a guild by name |
+| `get_guild_details` | Yes | Guild details (log, members, ranks, stash, storage, treasury, teams, upgrades) |
+
+#### Game Metadata
+
+| Tool | Auth | Description |
+|------|------|-------------|
+| `get_colors` | No | Dye color metadata |
+| `get_minis` | No | Miniature metadata |
+| `get_mounts_info` | No | Mount skin or type metadata |
+| `get_game_build` | No | Current game build number |
+| `get_dungeons_and_raids` | No | Dungeon or raid metadata |
 
 ### MCP Resources
 
@@ -131,25 +181,19 @@ The server provides the following resources:
 
 Complete list of all Guild Wars 2 currencies with metadata.
 
-## API Key Setup
-
-To use wallet functionality, you need a Guild Wars 2 API key:
-
-1. Visit [Guild Wars 2 API Key Management](https://account.arena.net/applications)
-2. Create a new API key with the following permissions:
-   - `account` - Required for wallet access
-   - `wallet` - Required for currency information
-3. Copy the generated API key
-
-**Security Note:** API keys are hashed before caching for security. Never share your API key.
-
 ## Caching Strategy
 
 The server implements intelligent caching:
 
-- **Static Data** (currencies, wiki content): Cached for 24 hours to 1 year
-- **Dynamic Data** (wallet balances): Cached for 5 minutes
-- **Search Results**: Cached for 24 hours
+- **Static Data** (currencies, items, skins, recipes, achievements, colors, minis, mounts, dungeons): 1 day
+- **Account Data** (wallet, bank, materials, inventory, characters, progress): 5 minutes
+- **Trading Post** (prices, listings): 5 minutes; exchange rates: 10 minutes; delivery: 2 minutes
+- **Unlocks**: 10 minutes
+- **Dailies**: 2 minutes
+- **Guild Info/Search**: 1 hour; Guild Details: 5 minutes
+- **Wizard's Vault**: Season: 1 day; Objectives (auth): 5 min, (public): 1 hour; Listings: 1 hour
+- **Game Build**: 1 hour; Token Info: 10 minutes
+- **Wiki/Search Results**: 24 hours
 
 ## Architecture
 
