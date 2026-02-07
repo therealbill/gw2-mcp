@@ -5,714 +5,583 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// textResult is a helper to build a text CallToolResult.
+func textResult(text string) (*mcp.CallToolResult, any, error) {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+	}, nil, nil
+}
+
+// errResult is a helper to build an error CallToolResult visible to the LLM.
+func errResult(msg string) (*mcp.CallToolResult, any, error) {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
+		IsError: true,
+	}, nil, nil
+}
+
+// jsonResult marshals v to indented JSON and returns it as a text result.
+func jsonResult(v any) (*mcp.CallToolResult, any, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errResult(fmt.Sprintf("Failed to format response: %v", err))
+	}
+	return textResult(string(data))
+}
+
 // handleWikiSearch handles wiki search requests
-func (s *MCPServer) handleWikiSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	query, err := request.RequireString("query")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid query parameter: %v", err)), nil
+func (s *MCPServer) handleWikiSearch(ctx context.Context, _ *mcp.CallToolRequest, args WikiSearchArgs) (*mcp.CallToolResult, any, error) {
+	if args.Query == "" {
+		return errResult("query parameter is required")
 	}
 
-	// Get limit parameter (optional)
-	const defaultLimit = 5
-	limit := request.GetInt("limit", defaultLimit)
-
-	s.logger.Debug("Wiki search request", "query", query, "limit", limit)
-
-	// Perform wiki search
-	results, err := s.wiki.Search(ctx, query, limit)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Wiki search failed: %v", err)), nil
+	limit := args.Limit
+	if limit == 0 {
+		limit = 5
 	}
 
-	// Format results as JSON
-	resultJSON, err := json.MarshalIndent(results, "", "  ")
+	s.logger.Debug("Wiki search request", "query", args.Query, "limit", limit)
+
+	results, err := s.wiki.Search(ctx, args.Query, limit)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format results: %v", err)), nil
+		return errResult(fmt.Sprintf("Wiki search failed: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(resultJSON)), nil
+	return jsonResult(results)
 }
 
 // handleGetWallet handles wallet information requests
-func (s *MCPServer) handleGetWallet(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetWallet(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Wallet request")
 
-	// Get wallet information
 	wallet, err := s.gw2API.GetWallet(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get wallet: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get wallet: %v", err))
 	}
 
-	// Format wallet as JSON
-	walletJSON, err := json.MarshalIndent(wallet, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format wallet: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(walletJSON)), nil
+	return jsonResult(wallet)
 }
 
 // handleGetCurrencies handles currency information requests
-func (s *MCPServer) handleGetCurrencies(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Parse optional currency IDs
-	currencyIDs := request.GetIntSlice("ids", nil)
+func (s *MCPServer) handleGetCurrencies(ctx context.Context, _ *mcp.CallToolRequest, args GetCurrenciesArgs) (*mcp.CallToolResult, any, error) {
+	s.logger.Debug("Currency request", "currency_ids", args.IDs)
 
-	s.logger.Debug("Currency request", "currency_ids", currencyIDs)
-
-	// Get currency information
-	currencies, err := s.gw2API.GetCurrencies(ctx, currencyIDs)
+	currencies, err := s.gw2API.GetCurrencies(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get currencies: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get currencies: %v", err))
 	}
 
-	// Format currencies as JSON
-	currenciesJSON, err := json.MarshalIndent(currencies, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format currencies: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(currenciesJSON)), nil
+	return jsonResult(currencies)
 }
 
 // handleGetTPPrices handles trading post price requests
-func (s *MCPServer) handleGetTPPrices(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	itemIDs := request.GetIntSlice("item_ids", nil)
-	if len(itemIDs) == 0 {
-		return mcp.NewToolResultError("item_ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetTPPrices(ctx context.Context, _ *mcp.CallToolRequest, args GetTPPricesArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.ItemIDs) == 0 {
+		return errResult("item_ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("TP prices request", "item_ids", itemIDs)
+	s.logger.Debug("TP prices request", "item_ids", args.ItemIDs)
 
-	prices, err := s.gw2API.GetPrices(ctx, itemIDs)
+	prices, err := s.gw2API.GetPrices(ctx, args.ItemIDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get trading post prices: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get trading post prices: %v", err))
 	}
 
-	pricesJSON, err := json.MarshalIndent(prices, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format prices: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(pricesJSON)), nil
+	return jsonResult(prices)
 }
 
 // handleGetTPListings handles trading post listing requests
-func (s *MCPServer) handleGetTPListings(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	itemIDs := request.GetIntSlice("item_ids", nil)
-	if len(itemIDs) == 0 {
-		return mcp.NewToolResultError("item_ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetTPListings(ctx context.Context, _ *mcp.CallToolRequest, args GetTPListingsArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.ItemIDs) == 0 {
+		return errResult("item_ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("TP listings request", "item_ids", itemIDs)
+	s.logger.Debug("TP listings request", "item_ids", args.ItemIDs)
 
-	listings, err := s.gw2API.GetListings(ctx, itemIDs)
+	listings, err := s.gw2API.GetListings(ctx, args.ItemIDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get trading post listings: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get trading post listings: %v", err))
 	}
 
-	listingsJSON, err := json.MarshalIndent(listings, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format listings: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(listingsJSON)), nil
+	return jsonResult(listings)
 }
 
 // handleGetGemExchange handles gem exchange rate requests
-func (s *MCPServer) handleGetGemExchange(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	direction, err := request.RequireString("direction")
+func (s *MCPServer) handleGetGemExchange(ctx context.Context, _ *mcp.CallToolRequest, args GetGemExchangeArgs) (*mcp.CallToolResult, any, error) {
+	if args.Direction == "" {
+		return errResult("direction parameter is required")
+	}
+	if args.Quantity <= 0 {
+		return errResult("quantity must be greater than 0")
+	}
+
+	s.logger.Debug("Gem exchange request", "direction", args.Direction, "quantity", args.Quantity)
+
+	exchange, err := s.gw2API.GetGemExchange(ctx, args.Direction, args.Quantity)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid direction parameter: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get gem exchange rate: %v", err))
 	}
 
-	quantity := request.GetInt("quantity", 0)
-	if quantity <= 0 {
-		return mcp.NewToolResultError("quantity must be greater than 0"), nil
-	}
-
-	s.logger.Debug("Gem exchange request", "direction", direction, "quantity", quantity)
-
-	exchange, err := s.gw2API.GetGemExchange(ctx, direction, quantity)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get gem exchange rate: %v", err)), nil
-	}
-
-	exchangeJSON, err := json.MarshalIndent(exchange, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format exchange rate: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(exchangeJSON)), nil
+	return jsonResult(exchange)
 }
 
 // handleGetTPDelivery handles trading post delivery box requests
-func (s *MCPServer) handleGetTPDelivery(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetTPDelivery(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("TP delivery request")
 
 	delivery, err := s.gw2API.GetDelivery(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get trading post delivery: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get trading post delivery: %v", err))
 	}
 
-	deliveryJSON, err := json.MarshalIndent(delivery, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format delivery: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(deliveryJSON)), nil
+	return jsonResult(delivery)
 }
 
 // handleGetTPTransactions handles trading post transaction requests
-func (s *MCPServer) handleGetTPTransactions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	txType, err := request.RequireString("type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+func (s *MCPServer) handleGetTPTransactions(ctx context.Context, _ *mcp.CallToolRequest, args GetTPTransactionsArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
 	}
 
-	s.logger.Debug("TP transactions request", "type", txType)
+	s.logger.Debug("TP transactions request", "type", args.Type)
 
-	transactions, err := s.gw2API.GetTransactions(ctx, txType)
+	transactions, err := s.gw2API.GetTransactions(ctx, args.Type)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get trading post transactions: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get trading post transactions: %v", err))
 	}
 
-	transactionsJSON, err := json.MarshalIndent(transactions, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format transactions: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(transactionsJSON)), nil
+	return jsonResult(transactions)
 }
 
-// --- Phase 2: Account Handlers ---
+// --- Account Handlers ---
 
 // handleGetAccount handles account information requests
-func (s *MCPServer) handleGetAccount(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetAccount(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Account request")
 
 	account, err := s.gw2API.GetAccount(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get account: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get account: %v", err))
 	}
 
-	data, err := json.MarshalIndent(account, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format account: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(account)
 }
 
 // handleGetBank handles bank vault requests
-func (s *MCPServer) handleGetBank(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetBank(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Bank request")
 
 	bank, err := s.gw2API.GetBank(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get bank: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get bank: %v", err))
 	}
 
-	data, err := json.MarshalIndent(bank, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format bank: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(bank)
 }
 
 // handleGetMaterials handles material storage requests
-func (s *MCPServer) handleGetMaterials(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetMaterials(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Materials request")
 
 	materials, err := s.gw2API.GetMaterials(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get materials: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get materials: %v", err))
 	}
 
-	data, err := json.MarshalIndent(materials, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format materials: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(materials)
 }
 
 // handleGetInventory handles shared inventory requests
-func (s *MCPServer) handleGetInventory(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetInventory(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Shared inventory request")
 
 	inventory, err := s.gw2API.GetSharedInventory(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get shared inventory: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get shared inventory: %v", err))
 	}
 
-	data, err := json.MarshalIndent(inventory, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format shared inventory: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(inventory)
 }
 
 // handleGetCharacters handles character list/detail requests
-func (s *MCPServer) handleGetCharacters(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	name := request.GetString("name", "")
-
-	if name != "" {
-		s.logger.Debug("Character detail request", "name", name)
-		character, err := s.gw2API.GetCharacter(ctx, name)
+func (s *MCPServer) handleGetCharacters(ctx context.Context, _ *mcp.CallToolRequest, args GetCharactersArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name != "" {
+		s.logger.Debug("Character detail request", "name", args.Name)
+		character, err := s.gw2API.GetCharacter(ctx, args.Name)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get character: %v", err)), nil
+			return errResult(fmt.Sprintf("Failed to get character: %v", err))
 		}
-		data, err := json.MarshalIndent(character, "", "  ")
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to format character: %v", err)), nil
-		}
-		return mcp.NewToolResultText(string(data)), nil
+		return jsonResult(character)
 	}
 
 	s.logger.Debug("Characters list request")
 	characters, err := s.gw2API.GetCharacters(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get characters: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get characters: %v", err))
 	}
 
-	data, err := json.MarshalIndent(characters, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format characters: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(characters)
 }
 
-// --- Phase 3-5: Account Unlocks, Progress, Dailies Handlers ---
+// --- Account Unlocks, Progress, Dailies Handlers ---
 
 // handleGetAccountUnlocks handles account unlock requests
-func (s *MCPServer) handleGetAccountUnlocks(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	unlockType, err := request.RequireString("type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+func (s *MCPServer) handleGetAccountUnlocks(ctx context.Context, _ *mcp.CallToolRequest, args GetAccountUnlocksArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
 	}
 
-	s.logger.Debug("Account unlocks request", "type", unlockType)
+	s.logger.Debug("Account unlocks request", "type", args.Type)
 
-	unlocks, err := s.gw2API.GetAccountUnlocks(ctx, unlockType)
+	unlocks, err := s.gw2API.GetAccountUnlocks(ctx, args.Type)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get account unlocks: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get account unlocks: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(unlocks)), nil
+	return textResult(string(unlocks))
 }
 
 // handleGetAccountProgress handles account progress requests
-func (s *MCPServer) handleGetAccountProgress(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	progressType, err := request.RequireString("type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+func (s *MCPServer) handleGetAccountProgress(ctx context.Context, _ *mcp.CallToolRequest, args GetAccountProgressArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
 	}
 
-	s.logger.Debug("Account progress request", "type", progressType)
+	s.logger.Debug("Account progress request", "type", args.Type)
 
-	progress, err := s.gw2API.GetAccountProgress(ctx, progressType)
+	progress, err := s.gw2API.GetAccountProgress(ctx, args.Type)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get account progress: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get account progress: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(progress)), nil
+	return textResult(string(progress))
 }
 
 // handleGetAccountDailies handles account dailies requests
-func (s *MCPServer) handleGetAccountDailies(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	dailyType, err := request.RequireString("type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+func (s *MCPServer) handleGetAccountDailies(ctx context.Context, _ *mcp.CallToolRequest, args GetAccountDailiesArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
 	}
 
-	s.logger.Debug("Account dailies request", "type", dailyType)
+	s.logger.Debug("Account dailies request", "type", args.Type)
 
-	dailies, err := s.gw2API.GetAccountDailies(ctx, dailyType)
+	dailies, err := s.gw2API.GetAccountDailies(ctx, args.Type)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get account dailies: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get account dailies: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(dailies)), nil
+	return textResult(string(dailies))
 }
 
-// --- Phase 6: Wizard's Vault Handlers ---
+// --- Wizard's Vault Handlers ---
 
 // handleGetWizardsVault handles wizard's vault season info requests
-func (s *MCPServer) handleGetWizardsVault(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetWizardsVault(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Wizard's vault season request")
 
 	data, err := s.gw2API.GetWizardsVault(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get wizard's vault: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get wizard's vault: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(data)), nil
+	return textResult(string(data))
 }
 
 // handleGetWizardsVaultObjectives handles wizard's vault objectives requests
-func (s *MCPServer) handleGetWizardsVaultObjectives(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	objType, err := request.RequireString("type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+func (s *MCPServer) handleGetWizardsVaultObjectives(ctx context.Context, _ *mcp.CallToolRequest, args GetWizardsVaultObjectivesArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
 	}
 
-	s.logger.Debug("Wizard's vault objectives request", "type", objType)
+	s.logger.Debug("Wizard's vault objectives request", "type", args.Type)
 
-	data, err := s.gw2API.GetWizardsVaultObjectives(ctx, objType)
+	data, err := s.gw2API.GetWizardsVaultObjectives(ctx, args.Type)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get wizard's vault objectives: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get wizard's vault objectives: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(data)), nil
+	return textResult(string(data))
 }
 
 // handleGetWizardsVaultListings handles wizard's vault listings requests
-func (s *MCPServer) handleGetWizardsVaultListings(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetWizardsVaultListings(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Wizard's vault listings request")
 
 	data, err := s.gw2API.GetWizardsVaultListings(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get wizard's vault listings: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get wizard's vault listings: %v", err))
 	}
 
-	return mcp.NewToolResultText(string(data)), nil
+	return textResult(string(data))
 }
 
-// --- Phase 7: Game Data Handlers ---
+// --- Game Data Handlers ---
 
 // handleGetItems handles item lookup requests
-func (s *MCPServer) handleGetItems(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	itemIDs := request.GetIntSlice("ids", nil)
-	if len(itemIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetItems(ctx context.Context, _ *mcp.CallToolRequest, args GetItemsArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("Items request", "ids", itemIDs)
+	s.logger.Debug("Items request", "ids", args.IDs)
 
-	items, err := s.gw2API.GetItems(ctx, itemIDs)
+	items, err := s.gw2API.GetItems(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get items: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get items: %v", err))
 	}
 
-	data, err := json.MarshalIndent(items, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format items: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(items)
 }
 
 // handleGetSkins handles skin lookup requests
-func (s *MCPServer) handleGetSkins(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	skinIDs := request.GetIntSlice("ids", nil)
-	if len(skinIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetSkins(ctx context.Context, _ *mcp.CallToolRequest, args GetSkinsArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("Skins request", "ids", skinIDs)
+	s.logger.Debug("Skins request", "ids", args.IDs)
 
-	skins, err := s.gw2API.GetSkins(ctx, skinIDs)
+	skins, err := s.gw2API.GetSkins(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get skins: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get skins: %v", err))
 	}
 
-	data, err := json.MarshalIndent(skins, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format skins: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(skins)
 }
 
 // handleGetRecipes handles recipe lookup requests
-func (s *MCPServer) handleGetRecipes(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	recipeIDs := request.GetIntSlice("ids", nil)
-	if len(recipeIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetRecipes(ctx context.Context, _ *mcp.CallToolRequest, args GetRecipesArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("Recipes request", "ids", recipeIDs)
+	s.logger.Debug("Recipes request", "ids", args.IDs)
 
-	recipes, err := s.gw2API.GetRecipes(ctx, recipeIDs)
+	recipes, err := s.gw2API.GetRecipes(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get recipes: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get recipes: %v", err))
 	}
 
-	data, err := json.MarshalIndent(recipes, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format recipes: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(recipes)
 }
 
 // handleSearchRecipes handles recipe search requests
-func (s *MCPServer) handleSearchRecipes(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	input := request.GetInt("input", 0)
-	output := request.GetInt("output", 0)
-
-	if input == 0 && output == 0 {
-		return mcp.NewToolResultError("either input or output item ID must be provided"), nil
+func (s *MCPServer) handleSearchRecipes(ctx context.Context, _ *mcp.CallToolRequest, args SearchRecipesArgs) (*mcp.CallToolResult, any, error) {
+	if args.Input == 0 && args.Output == 0 {
+		return errResult("either input or output item ID must be provided")
 	}
 
-	s.logger.Debug("Recipe search request", "input", input, "output", output)
+	s.logger.Debug("Recipe search request", "input", args.Input, "output", args.Output)
 
-	ids, err := s.gw2API.SearchRecipes(ctx, input, output)
+	ids, err := s.gw2API.SearchRecipes(ctx, args.Input, args.Output)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to search recipes: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to search recipes: %v", err))
 	}
 
-	data, err := json.MarshalIndent(ids, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format recipe search results: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(ids)
 }
 
 // handleGetAchievements handles achievement lookup requests
-func (s *MCPServer) handleGetAchievements(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	achIDs := request.GetIntSlice("ids", nil)
-	if len(achIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetAchievements(ctx context.Context, _ *mcp.CallToolRequest, args GetAchievementsArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("Achievements request", "ids", achIDs)
+	s.logger.Debug("Achievements request", "ids", args.IDs)
 
-	achievements, err := s.gw2API.GetAchievements(ctx, achIDs)
+	achievements, err := s.gw2API.GetAchievements(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get achievements: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get achievements: %v", err))
 	}
 
-	data, err := json.MarshalIndent(achievements, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format achievements: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(achievements)
 }
 
 // handleGetDailyAchievements handles daily achievement requests
-func (s *MCPServer) handleGetDailyAchievements(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetDailyAchievements(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Daily achievements request")
 
 	dailies, err := s.gw2API.GetDailyAchievements(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get daily achievements: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get daily achievements: %v", err))
 	}
 
-	data, err := json.MarshalIndent(dailies, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format daily achievements: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(dailies)
 }
 
-// --- Phase 8: Guild Handlers ---
+// --- Guild Handlers ---
 
 // handleGetGuild handles public guild info requests
-func (s *MCPServer) handleGetGuild(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	guildID, err := request.RequireString("id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid id parameter: %v", err)), nil
+func (s *MCPServer) handleGetGuild(ctx context.Context, _ *mcp.CallToolRequest, args GetGuildArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id parameter is required")
 	}
 
-	s.logger.Debug("Guild info request", "id", guildID)
+	s.logger.Debug("Guild info request", "id", args.ID)
 
-	guild, err := s.gw2API.GetGuild(ctx, guildID)
+	guild, err := s.gw2API.GetGuild(ctx, args.ID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get guild: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get guild: %v", err))
 	}
 
-	data, err := json.MarshalIndent(guild, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format guild: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(guild)
 }
 
 // handleSearchGuild handles guild search requests
-func (s *MCPServer) handleSearchGuild(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	name, err := request.RequireString("name")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid name parameter: %v", err)), nil
+func (s *MCPServer) handleSearchGuild(ctx context.Context, _ *mcp.CallToolRequest, args SearchGuildArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name == "" {
+		return errResult("name parameter is required")
 	}
 
-	s.logger.Debug("Guild search request", "name", name)
+	s.logger.Debug("Guild search request", "name", args.Name)
 
-	ids, err := s.gw2API.SearchGuild(ctx, name)
+	ids, err := s.gw2API.SearchGuild(ctx, args.Name)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to search guild: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to search guild: %v", err))
 	}
 
-	data, err := json.MarshalIndent(ids, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format guild search results: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(ids)
 }
 
 // handleGetGuildDetails handles authenticated guild detail requests
-func (s *MCPServer) handleGetGuildDetails(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	guildID, err := request.RequireString("id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid id parameter: %v", err)), nil
+func (s *MCPServer) handleGetGuildDetails(ctx context.Context, _ *mcp.CallToolRequest, args GetGuildDetailsArgs) (*mcp.CallToolResult, any, error) {
+	if args.ID == "" {
+		return errResult("id parameter is required")
+	}
+	if args.Type == "" {
+		return errResult("type parameter is required")
 	}
 
-	detailType, err := request.RequireString("type")
+	s.logger.Debug("Guild detail request", "id", args.ID, "type", args.Type)
+
+	details, err := s.gw2API.GetGuildDetails(ctx, args.ID, args.Type)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get guild details: %v", err))
 	}
 
-	s.logger.Debug("Guild detail request", "id", guildID, "type", detailType)
-
-	details, err := s.gw2API.GetGuildDetails(ctx, guildID, detailType)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get guild details: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(details)), nil
+	return textResult(string(details))
 }
 
-// --- Phase 9: Game Metadata Handlers ---
+// --- Game Metadata Handlers ---
 
 // handleGetColors handles color lookup requests
-func (s *MCPServer) handleGetColors(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	colorIDs := request.GetIntSlice("ids", nil)
-	if len(colorIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetColors(ctx context.Context, _ *mcp.CallToolRequest, args GetColorsArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("Colors request", "ids", colorIDs)
+	s.logger.Debug("Colors request", "ids", args.IDs)
 
-	colors, err := s.gw2API.GetColors(ctx, colorIDs)
+	colors, err := s.gw2API.GetColors(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get colors: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get colors: %v", err))
 	}
 
-	data, err := json.MarshalIndent(colors, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format colors: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(colors)
 }
 
 // handleGetMinis handles mini lookup requests
-func (s *MCPServer) handleGetMinis(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	miniIDs := request.GetIntSlice("ids", nil)
-	if len(miniIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
+func (s *MCPServer) handleGetMinis(ctx context.Context, _ *mcp.CallToolRequest, args GetMinisArgs) (*mcp.CallToolResult, any, error) {
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
 	}
 
-	s.logger.Debug("Minis request", "ids", miniIDs)
+	s.logger.Debug("Minis request", "ids", args.IDs)
 
-	minis, err := s.gw2API.GetMinis(ctx, miniIDs)
+	minis, err := s.gw2API.GetMinis(ctx, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get minis: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get minis: %v", err))
 	}
 
-	data, err := json.MarshalIndent(minis, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format minis: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(minis)
 }
 
 // handleGetMountsInfo handles mount info requests
-func (s *MCPServer) handleGetMountsInfo(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	mountType, err := request.RequireString("type")
+func (s *MCPServer) handleGetMountsInfo(ctx context.Context, _ *mcp.CallToolRequest, args GetMountsInfoArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
+	}
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
+	}
+
+	s.logger.Debug("Mounts info request", "type", args.Type, "ids", args.IDs)
+
+	data, err := s.gw2API.GetMountsInfo(ctx, args.Type, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get mount info: %v", err))
 	}
 
-	mountIDs := request.GetIntSlice("ids", nil)
-	if len(mountIDs) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
-	}
-
-	s.logger.Debug("Mounts info request", "type", mountType, "ids", mountIDs)
-
-	data, err := s.gw2API.GetMountsInfo(ctx, mountType, mountIDs)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get mount info: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(data)), nil
+	return textResult(string(data))
 }
 
 // handleGetGameBuild handles game build number requests
-func (s *MCPServer) handleGetGameBuild(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetGameBuild(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Game build request")
 
 	build, err := s.gw2API.GetGameBuild(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get game build: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get game build: %v", err))
 	}
 
-	data, err := json.MarshalIndent(build, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format game build: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(build)
 }
 
 // handleGetTokenInfo handles API token info requests
-func (s *MCPServer) handleGetTokenInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetTokenInfo(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	s.logger.Debug("Token info request")
 
 	info, err := s.gw2API.GetTokenInfo(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get token info: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get token info: %v", err))
 	}
 
-	data, err := json.MarshalIndent(info, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to format token info: %v", err)), nil
-	}
-	return mcp.NewToolResultText(string(data)), nil
+	return jsonResult(info)
 }
 
 // handleGetDungeonsAndRaids handles dungeon/raid metadata requests
-func (s *MCPServer) handleGetDungeonsAndRaids(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	contentType, err := request.RequireString("type")
+func (s *MCPServer) handleGetDungeonsAndRaids(ctx context.Context, _ *mcp.CallToolRequest, args GetDungeonsAndRaidsArgs) (*mcp.CallToolResult, any, error) {
+	if args.Type == "" {
+		return errResult("type parameter is required")
+	}
+	if len(args.IDs) == 0 {
+		return errResult("ids parameter is required and must not be empty")
+	}
+
+	s.logger.Debug("Dungeons/raids request", "type", args.Type, "ids", args.IDs)
+
+	data, err := s.gw2API.GetDungeonsAndRaids(ctx, args.Type, args.IDs)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Invalid type parameter: %v", err)), nil
+		return errResult(fmt.Sprintf("Failed to get %s: %v", args.Type, err))
 	}
 
-	idsRaw := request.GetStringSlice("ids", nil)
-	if len(idsRaw) == 0 {
-		return mcp.NewToolResultError("ids parameter is required and must not be empty"), nil
-	}
-
-	s.logger.Debug("Dungeons/raids request", "type", contentType, "ids", idsRaw)
-
-	data, err := s.gw2API.GetDungeonsAndRaids(ctx, contentType, idsRaw)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Failed to get %s: %v", contentType, err)), nil
-	}
-
-	return mcp.NewToolResultText(string(data)), nil
+	return textResult(string(data))
 }
 
 // handleCurrencyListResource handles the currency list resource
-func (s *MCPServer) handleCurrencyListResource(ctx context.Context,
-	_ mcp.ReadResourceRequest,
-) ([]mcp.ResourceContents, error) {
+func (s *MCPServer) handleCurrencyListResource(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 	s.logger.Debug("Currency list resource request")
 
-	// Get all currencies
 	currencies, err := s.gw2API.GetCurrencies(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get currencies: %w", err)
 	}
 
-	// Format currencies as JSON
 	currenciesJSON, err := json.MarshalIndent(currencies, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("failed to format currencies: %w", err)
 	}
 
-	return []mcp.ResourceContents{
-		mcp.TextResourceContents{
-			URI:      "gw2://currencies",
-			MIMEType: "application/json",
-			Text:     string(currenciesJSON),
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{
+			{
+				URI:      "gw2://currencies",
+				MIMEType: "application/json",
+				Text:     string(currenciesJSON),
+			},
 		},
 	}, nil
 }
