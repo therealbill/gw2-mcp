@@ -1,8 +1,15 @@
 # GW2 MCP Server Makefile
 
-.PHONY: build clean test lint format deps run help
+.DELETE_ON_ERROR:
+.DEFAULT_GOAL := help
 
-# Detect Windows and set binary extension
+# ── Tools ────────────────────────────────────────────────────────────────────
+GO          := go
+GOFUMPT     := gofumpt
+GOLANGCI    := golangci-lint
+GOVULNCHECK := govulncheck
+
+# ── Platform ─────────────────────────────────────────────────────────────────
 ifeq ($(OS),Windows_NT)
   EXT := .exe
 else
@@ -11,97 +18,113 @@ endif
 
 BINARY := bin/gw2-mcp$(EXT)
 
-# Default target
-all: format lint test build
+# ── Version info (lazy evaluation — only resolved when used) ─────────────────
+VERSION = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT  = $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
+DATE    = $(shell date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-# Build the server
-build:
+# ── Targets ──────────────────────────────────────────────────────────────────
+
+.PHONY: all
+all: format vet lint test build ## Run full pipeline (format, vet, lint, test, build)
+
+.PHONY: build
+build: ## Build the server binary
 	@echo "Building GW2 MCP Server..."
-	go build -o $(BINARY) -ldflags "-s -w" ./
+	$(GO) build -o $(BINARY) -ldflags "$(LDFLAGS)" ./
 
-# Clean build artifacts
-clean:
+.PHONY: clean
+clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
 	rm -rf bin/
-	go clean
+	$(GO) clean
 
-# Run tests
-test:
+.PHONY: test
+test: ## Run tests with race detection
 	@echo "Running tests..."
-	go test -v -race -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+	$(GO) test -v -race -coverprofile=coverage.out ./...
 
-# Run linter
-lint:
+.PHONY: coverage
+coverage: test ## Generate HTML coverage report
+	@echo "Generating coverage report..."
+	$(GO) tool cover -html=coverage.out -o coverage.html
+
+.PHONY: bench
+bench: ## Run benchmarks
+	$(GO) test -bench=. -benchmem -run=^$$ ./...
+
+.PHONY: vet
+vet: ## Run go vet
+	@echo "Running go vet..."
+	$(GO) vet ./...
+
+.PHONY: lint
+lint: ## Run linter (golangci-lint)
 	@echo "Running linter..."
-	golangci-lint run ./...
+	$(GOLANGCI) run ./...
 
-# Format code
-format:
+.PHONY: format
+format: ## Format code and tidy modules
 	@echo "Formatting code..."
-	gofumpt -w .
-	go mod tidy
+	$(GOFUMPT) -w .
+	$(GO) mod tidy
 
-# Install/update dependencies
-deps:
+.PHONY: deps
+deps: ## Install/update dependencies
 	@echo "Installing dependencies..."
-	go mod download
-	go mod verify
+	$(GO) mod download
+	$(GO) mod verify
 
-# Run the server
-run: build
+.PHONY: run
+run: build ## Build and run the server
 	@echo "Starting GW2 MCP Server..."
 	./$(BINARY)
 
-# Development run (with race detection)
-dev:
+.PHONY: dev
+dev: ## Run in development mode with race detection
 	@echo "Starting GW2 MCP Server in development mode..."
-	go run -race ./
+	$(GO) run -race ./
 
-# Install development tools
-tools:
+.PHONY: tools
+tools: ## Install development tools
 	@echo "Installing development tools..."
-	go install mvdan.cc/gofumpt@latest
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	$(GO) install mvdan.cc/gofumpt@latest
+	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 
-# Check for security vulnerabilities
-security:
+.PHONY: security
+security: ## Check for security vulnerabilities (govulncheck)
 	@echo "Checking for security vulnerabilities..."
-	go list -json -deps ./... | nancy sleuth
+	$(GOVULNCHECK) ./...
 
-# Generate documentation
-docs:
+.PHONY: docs
+docs: ## List package documentation
 	@echo "Generating documentation..."
-	go doc -all ./... > docs/api.txt
+	@$(GO) list ./... | while read pkg; do echo "=== $$pkg ==="; $(GO) doc -all "$$pkg"; done
 
-# Release build (optimized)
-release:
+.PHONY: generate
+generate: ## Run go generate
+	$(GO) generate ./...
+
+.PHONY: check
+check: vet lint test security ## Run all quality checks (vet, lint, test, security)
+
+.PHONY: release
+release: ## Build optimized release binary
 	@echo "Building release version..."
-ifeq ($(OS),Windows_NT)
-	set CGO_ENABLED=0&& go build -a -installsuffix cgo -ldflags "-s -w -X main.version=$(shell git describe --tags --always)" -o $(BINARY) ./
-else
-	CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s -w -X main.version=$(shell git describe --tags --always)" -o $(BINARY) ./
-endif
+	CGO_ENABLED=0 $(GO) build -ldflags "$(LDFLAGS)" -o $(BINARY) ./
 
-# Docker build
-docker:
+.PHONY: docker
+docker: ## Build Docker image
 	@echo "Building Docker image..."
-	docker build --build-arg VERSION=$(shell git describe --tags --always) -t gw2-mcp:latest .
+	docker build --build-arg VERSION=$(VERSION) -t gw2-mcp:latest .
 
-# Show help
-help:
-	@echo "Available targets:"
-	@echo "  build     - Build the server binary"
-	@echo "  clean     - Clean build artifacts"
-	@echo "  test      - Run tests with coverage"
-	@echo "  lint      - Run linter"
-	@echo "  format    - Format code and tidy modules"
-	@echo "  deps      - Install/update dependencies"
-	@echo "  run       - Build and run the server"
-	@echo "  dev       - Run in development mode with race detection"
-	@echo "  tools     - Install development tools"
-	@echo "  security  - Check for security vulnerabilities"
-	@echo "  docs      - Generate documentation"
-	@echo "  release   - Build optimized release version"
-	@echo "  docker    - Build Docker image"
-	@echo "  help      - Show this help message"
+.PHONY: help
+help: ## Show this help message
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+
+# ── Debugging ────────────────────────────────────────────────────────────────
+print-%: ## Print any variable (e.g., make print-VERSION)
+	@echo '$*=$($*)'

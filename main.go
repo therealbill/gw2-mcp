@@ -14,6 +14,12 @@ import (
 	"github.com/AlyxPink/gw2-mcp/internal/server"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	// Setup logger
 	logger := log.NewWithOptions(os.Stderr, log.Options{
@@ -47,7 +53,7 @@ func main() {
 		logger.Fatal("Failed to create MCP server", "error", err)
 	}
 
-	logger.Info("Starting GW2 MCP Server")
+	logger.Info("Starting GW2 MCP Server", "version", version, "commit", commit, "date", date)
 	if err := mcpServer.Start(ctx); err != nil {
 		logger.Fatal("Server failed", "error", err)
 	}
