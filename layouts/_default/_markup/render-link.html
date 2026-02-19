@@ -1,0 +1,28 @@
+{{- /* Render hook for portable markdown links.
+     Resolves relative paths through Hugo's page system so standard
+     markdown links (e.g. [text](../foo/bar.md)) work in both
+     GitHub and Hugo without requiring shortcodes. */ -}}
+
+{{- $url := .Destination -}}
+
+{{- if or (strings.HasPrefix $url "http") (strings.HasPrefix $url "//") (strings.HasPrefix $url "#") (strings.HasPrefix $url "mailto:") -}}
+  {{- /* External or anchor link — pass through unchanged */ -}}
+{{- else -}}
+  {{- /* Internal link — resolve through Hugo's page system */ -}}
+  {{- $path := $url -}}
+  {{- $path = strings.TrimSuffix ".md" $path -}}
+  {{- $path = strings.TrimSuffix "/" $path -}}
+  {{- /* Resolve relative paths: join the source file's directory with
+       the link destination. path.Join cleans ../  traversals. */ -}}
+  {{- if not (strings.HasPrefix $path "/") -}}
+    {{- $dir := .Page.File.Dir -}}
+    {{- $path = printf "/%s" (path.Join $dir $path) -}}
+  {{- end -}}
+  {{- with .Page.GetPage $path -}}
+    {{- $url = .RelPermalink -}}
+  {{- end -}}
+{{- end -}}
+
+<a href="{{ $url | safeURL }}"
+  {{- with .Title }} title="{{ . }}"{{ end -}}
+>{{ .Text | safeHTML }}</a>

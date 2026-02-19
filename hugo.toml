@@ -1,0 +1,22 @@
+baseURL = 'https://therealbill.github.io/gw2-mcp/'
+languageCode = 'en-us'
+title = 'GW2 MCP Server'
+contentDir = 'docs'
+ignoreFiles = ['plans/']
+
+# Book theme configuration
+[params]
+  BookToC = true
+  BookSection = '*'
+  BookRepo = 'https://github.com/therealbill/gw2-mcp'
+  BookEditPath = 'edit/main/docs'
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true
+
+# Hugo Modules: Book theme
+[module]
+  [[module.imports]]
+    path = 'github.com/alex-shpak/hugo-book'

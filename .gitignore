@@ -70,3 +70,8 @@ config.local.yaml
 # Profiling data
 *.prof
 *.pprof
+
+# Hugo
+public/
+resources/
+.hugo_build.lock

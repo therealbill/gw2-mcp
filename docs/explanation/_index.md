@@ -1,5 +1,7 @@
 ---
 title: Explanation
+weight: 4
+bookCollapseSection: true
 ---
 
 # Explanation
