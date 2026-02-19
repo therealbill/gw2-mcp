@@ -125,8 +125,8 @@ func TestClient_Search_API(t *testing.T) {
 						}
 					}
 				}`))
-			} else if r.URL.Query().Get("prop") == "extracts" {
-				// Mock extract response
+			} else if strings.Contains(r.URL.Query().Get("prop"), "extracts") {
+				// Mock extract + revisions response
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(`{
@@ -137,7 +137,8 @@ func TestClient_Search_API(t *testing.T) {
 								"pageid": 12345,
 								"ns": 0,
 								"title": "Dragon Bash",
-								"extract": "Dragon Bash is an annual festival in Guild Wars 2."
+								"extract": "Dragon Bash is an annual festival in Guild Wars 2.",
+								"revisions": [{"slots": {"main": {"*": "{{Infobox event\n| name = Dragon Bash\n| type = Festival\n}}"}}}]
 							}
 						}
 					}
@@ -231,5 +232,133 @@ func TestNewClient(t *testing.T) {
 
 	if client.httpClient.Timeout != requestTimeout {
 		t.Errorf("Expected timeout %v, got %v", requestTimeout, client.httpClient.Timeout)
+	}
+}
+
+func TestParseInfobox(t *testing.T) {
+	tests := []struct {
+		name     string
+		wikitext string
+		expected map[string]string
+	}{
+		{
+			name:     "No infobox",
+			wikitext: "Just some regular wiki text without templates.",
+			expected: nil,
+		},
+		{
+			name: "Simple infobox",
+			wikitext: `Some text before
+{{Infobox item
+| id = 9566
+| name = 18 Slot Silk Bag
+| rarity = Fine
+| type = Container
+}}
+Some text after`,
+			expected: map[string]string{
+				"id":     "9566",
+				"name":   "18 Slot Silk Bag",
+				"rarity": "Fine",
+				"type":   "Container",
+			},
+		},
+		{
+			name: "Infobox with nested templates skipped",
+			wikitext: `{{Infobox weapon
+| id = 1234
+| name = Cool Sword
+| icon = {{item icon|Cool Sword}}
+| rarity = Exotic
+}}`,
+			expected: map[string]string{
+				"id":     "1234",
+				"name":   "Cool Sword",
+				"rarity": "Exotic",
+			},
+		},
+		{
+			name: "Infobox with other templates before it",
+			wikitext: `{{stub}}
+{{Infobox npc
+| name = Miyani
+| level = 80
+}}`,
+			expected: map[string]string{
+				"name":  "Miyani",
+				"level": "80",
+			},
+		},
+		{
+			name:     "Empty infobox",
+			wikitext: `{{Infobox item}}`,
+			expected: nil,
+		},
+		{
+			name: "Case insensitive infobox detection",
+			wikitext: `{{infobox event
+| name = Dragon Bash
+| type = Festival
+}}`,
+			expected: map[string]string{
+				"name": "Dragon Bash",
+				"type": "Festival",
+			},
+		},
+		{
+			name: "GW2 wiki Inventory infobox format",
+			wikitext: `{{Inventory infobox
+| slots = 18
+| description = 18 Slots
+| rarity = basic
+| value = 27
+| id = 9566
+}}`,
+			expected: map[string]string{
+				"slots":       "18",
+				"description": "18 Slots",
+				"rarity":      "basic",
+				"value":       "27",
+				"id":          "9566",
+			},
+		},
+		{
+			name: "GW2 wiki infobox after other templates",
+			wikitext: `{{Recipe
+| type = Bag
+| source = automatic
+}}
+{{Inventory infobox
+| id = 9566
+| rarity = basic
+}}`,
+			expected: map[string]string{
+				"id":     "9566",
+				"rarity": "basic",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseInfobox(tt.wikitext)
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("parseInfobox() = %v, want nil", result)
+				}
+				return
+			}
+			if result == nil {
+				t.Fatalf("parseInfobox() = nil, want %v", tt.expected)
+			}
+			if len(result) != len(tt.expected) {
+				t.Errorf("parseInfobox() returned %d keys, want %d. Got: %v", len(result), len(tt.expected), result)
+			}
+			for k, v := range tt.expected {
+				if result[k] != v {
+					t.Errorf("parseInfobox()[%q] = %q, want %q", k, result[k], v)
+				}
+			}
+		})
 	}
 }

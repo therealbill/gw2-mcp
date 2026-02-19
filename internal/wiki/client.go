@@ -32,14 +32,15 @@ type Client struct {
 
 // SearchResult represents a single search result from the wiki
 type SearchResult struct {
-	Title     string `json:"title"`
-	Snippet   string `json:"snippet"`
-	Timestamp string `json:"timestamp"`
-	URL       string `json:"url"`
-	Extract   string `json:"extract,omitempty"`
-	PageID    int    `json:"pageid"`
-	Size      int    `json:"size"`
-	WordCount int    `json:"wordcount"`
+	Title     string            `json:"title"`
+	Snippet   string            `json:"snippet"`
+	Timestamp string            `json:"timestamp"`
+	URL       string            `json:"url"`
+	Extract   string            `json:"extract,omitempty"`
+	Infobox   map[string]string `json:"infobox,omitempty"`
+	PageID    int               `json:"pageid"`
+	Size      int               `json:"size"`
+	WordCount int               `json:"wordcount"`
 }
 
 // SearchResponse represents the complete search response
@@ -73,13 +74,26 @@ type APIResponse struct {
 type PageContentResponse struct {
 	Query struct {
 		Pages map[string]struct {
-			Title   string `json:"title"`
-			Extract string `json:"extract"`
-			PageID  int    `json:"pageid"`
-			NS      int    `json:"ns"`
+			Title     string `json:"title"`
+			Extract   string `json:"extract"`
+			Revisions []struct {
+				Slots struct {
+					Main struct {
+						Content string `json:"*"`
+					} `json:"main"`
+				} `json:"slots"`
+			} `json:"revisions"`
+			PageID int `json:"pageid"`
+			NS     int `json:"ns"`
 		} `json:"pages"`
 	} `json:"query"`
 	BatchComplete string `json:"batchcomplete"`
+}
+
+// pageDetails holds the cached extract and infobox for a wiki page
+type pageDetails struct {
+	Extract string            `json:"extract"`
+	Infobox map[string]string `json:"infobox,omitempty"`
 }
 
 // NewClient creates a new wiki client
@@ -114,13 +128,14 @@ func (c *Client) Search(ctx context.Context, query string, limit int) (*SearchRe
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
-	// Enhance results with page extracts
+	// Enhance results with page extracts and infobox data
 	for i := range searchResults {
-		extract, err := c.getPageExtract(ctx, searchResults[i].Title)
+		details, err := c.getPageDetails(ctx, searchResults[i].Title)
 		if err != nil {
-			c.logger.Warn("Failed to get page extract", "title", searchResults[i].Title, "error", err)
+			c.logger.Warn("Failed to get page details", "title", searchResults[i].Title, "error", err)
 		} else {
-			searchResults[i].Extract = extract
+			searchResults[i].Extract = details.Extract
+			searchResults[i].Infobox = details.Infobox
 		}
 		searchResults[i].URL = fmt.Sprintf("%s/wiki/%s", wikiBaseURL, url.QueryEscape(searchResults[i].Title))
 	}
@@ -202,39 +217,42 @@ func (c *Client) performSearch(ctx context.Context, query string, limit int) ([]
 	return results, nil
 }
 
-// getPageExtract retrieves a short extract for a wiki page
-func (c *Client) getPageExtract(ctx context.Context, title string) (string, error) {
+// getPageDetails retrieves the extract and infobox data for a wiki page
+func (c *Client) getPageDetails(ctx context.Context, title string) (*pageDetails, error) {
 	cacheKey := c.cache.GetWikiPageKey(title)
 
 	// Try cache first
-	if extract, found := c.cache.GetString(cacheKey); found {
-		return extract, nil
+	var cached pageDetails
+	if c.cache.GetJSON(cacheKey, &cached) {
+		return &cached, nil
 	}
 
-	// Build extract URL
+	// Build URL requesting both extracts and wikitext revisions
 	params := url.Values{
 		"action":          {"query"},
 		"format":          {"json"},
-		"prop":            {"extracts"},
+		"prop":            {"extracts|revisions"},
 		"titles":          {title},
 		"exintro":         {"true"},
 		"explaintext":     {"true"},
 		"exsectionformat": {"plain"},
-		"exchars":         {"500"}, // Limit to 500 characters
+		"exchars":         {"500"},
+		"rvprop":          {"content"},
+		"rvslots":         {"main"},
 	}
 
-	extractURL := fmt.Sprintf("%s?%s", wikiAPIURL, params.Encode())
+	detailsURL := fmt.Sprintf("%s?%s", wikiAPIURL, params.Encode())
 
-	req, err := http.NewRequestWithContext(ctx, "GET", extractURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, "GET", detailsURL, http.NoBody)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -243,25 +261,115 @@ func (c *Client) getPageExtract(ctx context.Context, title string) (string, erro
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("extract API request failed with status %d", resp.StatusCode)
+		return nil, fmt.Errorf("page details API request failed with status %d", resp.StatusCode)
 	}
 
 	var contentResponse PageContentResponse
 	if err := json.NewDecoder(resp.Body).Decode(&contentResponse); err != nil {
-		return "", fmt.Errorf("failed to decode extract response: %w", err)
+		return nil, fmt.Errorf("failed to decode page details response: %w", err)
 	}
 
-	// Extract the content
-	var extract string
+	// Extract the content and parse infobox from wikitext
+	details := &pageDetails{}
 	for _, page := range contentResponse.Query.Pages {
-		extract = page.Extract
+		details.Extract = page.Extract
+		if len(page.Revisions) > 0 {
+			wikitext := page.Revisions[0].Slots.Main.Content
+			details.Infobox = parseInfobox(wikitext)
+		}
 		break // Take the first (and should be only) page
 	}
 
-	// Cache the extract
-	c.cache.Set(cacheKey, extract, cache.WikiDataTTL)
+	// Cache the details
+	if err := c.cache.SetJSON(cacheKey, details, cache.WikiDataTTL); err != nil {
+		c.logger.Warn("Failed to cache page details", "error", err)
+	}
 
-	return extract, nil
+	return details, nil
+}
+
+// parseInfobox extracts key-value pairs from the first infobox template in wikitext.
+// It handles nested {{...}} blocks and returns nil if no infobox is found.
+func parseInfobox(wikitext string) map[string]string {
+	// Find the start of an infobox template (case-insensitive search for "infobox")
+	lower := strings.ToLower(wikitext)
+	idx := strings.Index(lower, "{{")
+	for idx >= 0 {
+		rest := lower[idx+2:]
+		trimmed := strings.TrimSpace(rest)
+		// Extract just the template name (before first | or newline)
+		templateName := trimmed
+		if pipeIdx := strings.IndexAny(templateName, "|\n"); pipeIdx >= 0 {
+			templateName = templateName[:pipeIdx]
+		}
+		templateName = strings.TrimSpace(templateName)
+		if strings.Contains(templateName, "infobox") {
+			break
+		}
+		// Look for next {{
+		next := strings.Index(lower[idx+2:], "{{")
+		if next < 0 {
+			return nil
+		}
+		idx = idx + 2 + next
+	}
+	if idx < 0 {
+		return nil
+	}
+
+	// Find the matching closing }} while tracking nesting depth
+	depth := 1
+	pos := idx + 2
+	for pos < len(wikitext)-1 && depth > 0 {
+		if wikitext[pos] == '{' && wikitext[pos+1] == '{' {
+			depth++
+			pos += 2
+		} else if wikitext[pos] == '}' && wikitext[pos+1] == '}' {
+			depth--
+			if depth == 0 {
+				break
+			}
+			pos += 2
+		} else {
+			pos++
+		}
+	}
+
+	if depth != 0 {
+		return nil
+	}
+
+	block := wikitext[idx+2 : pos]
+
+	// Extract | key = value pairs, skipping nested templates
+	result := make(map[string]string)
+	lines := strings.Split(block, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		line = line[1:] // strip leading |
+		eqIdx := strings.Index(line, "=")
+		if eqIdx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eqIdx])
+		value := strings.TrimSpace(line[eqIdx+1:])
+		if key == "" {
+			continue
+		}
+		// Skip values that are themselves template calls
+		if strings.HasPrefix(value, "{{") {
+			continue
+		}
+		result[key] = value
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // cleanSnippet removes HTML tags and cleans up the snippet text
