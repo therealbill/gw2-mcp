@@ -122,6 +122,18 @@ type GetDungeonsAndRaidsArgs struct {
 	IDs  []string `json:"ids" jsonschema:"Array of dungeon or raid IDs (e.g. 'ascalonian_catacombs', 'forsaken_thicket')"`
 }
 
+type GetItemByNameArgs struct {
+	Name string `json:"name" jsonschema:"Item name to search for (e.g. 'Mystic Coin', 'Dusk')"`
+}
+
+type GetItemRecipeByNameArgs struct {
+	Name string `json:"name" jsonschema:"Item name to find recipes for (e.g. '18 Slot Silk Bag', 'Dawn')"`
+}
+
+type GetTPPriceByNameArgs struct {
+	Name string `json:"name" jsonschema:"Item name to get trading post prices for (e.g. 'Glob of Ectoplasm', 'Mystic Coin')"`
+}
+
 // NewMCPServer creates a new GW2 MCP server instance
 func NewMCPServer(logger *log.Logger, apiKey string) (*MCPServer, error) {
 	// Create cache manager
@@ -239,7 +251,7 @@ func (s *MCPServer) registerTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "get_characters",
-		Description: "Get list of character names, or detailed info for a specific character. Requires GW2_API_KEY.",
+		Description: "Get list of character names, or detailed info for a specific character including crafting disciplines, equipment, skills, specializations, and build tabs. Requires GW2_API_KEY.",
 	}, s.handleGetCharacters)
 
 	// --- Account Unlocks ---
@@ -284,17 +296,17 @@ func (s *MCPServer) registerTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "get_items",
-		Description: "Get item metadata (name, type, rarity, level, icon) for given item IDs.",
+		Description: "Get item metadata (name, type, rarity, level, icon, description, vendor value, flags, game types, restrictions, and type-specific details) for given item IDs.",
 	}, s.handleGetItems)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "get_skins",
-		Description: "Get skin metadata (name, type, icon) for given skin IDs.",
+		Description: "Get skin metadata (name, type, icon, rarity, description, flags, restrictions, and type-specific details) for given skin IDs.",
 	}, s.handleGetSkins)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "get_recipes",
-		Description: "Get recipe details (type, output, ingredients, disciplines) for given recipe IDs.",
+		Description: "Get recipe details (type, output, ingredients, disciplines, crafting time, flags, guild ingredients, chat link) for given recipe IDs.",
 	}, s.handleGetRecipes)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -304,7 +316,7 @@ func (s *MCPServer) registerTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "get_achievements",
-		Description: "Get achievement details (name, description, requirements) for given achievement IDs.",
+		Description: "Get achievement details (name, description, requirements, tiers, prerequisites, rewards, bits, icon) for given achievement IDs.",
 	}, s.handleGetAchievements)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -333,7 +345,7 @@ func (s *MCPServer) registerTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
 		Name:        "get_colors",
-		Description: "Get dye color metadata (name) for given color IDs.",
+		Description: "Get dye color metadata (name, base RGB, cloth/leather/metal/fur material adjustments) for given color IDs.",
 	}, s.handleGetColors)
 
 	mcp.AddTool(s.mcp, &mcp.Tool{
@@ -360,6 +372,23 @@ func (s *MCPServer) registerTools() {
 		Name:        "get_dungeons_and_raids",
 		Description: "Get dungeon or raid metadata (paths, wings, events) for given IDs.",
 	}, s.handleGetDungeonsAndRaids)
+
+	// --- Composite Tools ---
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "get_item_by_name",
+		Description: "Look up a GW2 item by name. Searches the wiki to find the item ID, then returns full item details from the API.",
+	}, s.handleGetItemByName)
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "get_item_recipe_by_name",
+		Description: "Find crafting recipes for a GW2 item by name. Searches the wiki for recipe data, then returns full recipe details with resolved ingredient names.",
+	}, s.handleGetItemRecipeByName)
+
+	mcp.AddTool(s.mcp, &mcp.Tool{
+		Name:        "get_tp_price_by_name",
+		Description: "Get Trading Post prices for an item by name. Searches the wiki to find the item ID, then returns current buy/sell prices.",
+	}, s.handleGetTPPriceByName)
 }
 
 // registerResources registers all available resources

@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/AlyxPink/gw2-mcp/internal/gw2api"
+	"github.com/AlyxPink/gw2-mcp/internal/wiki"
 )
 
 // textResult is a helper to build a text CallToolResult.
@@ -559,6 +563,222 @@ func (s *MCPServer) handleGetDungeonsAndRaids(ctx context.Context, _ *mcp.CallTo
 	}
 
 	return textResult(string(data))
+}
+
+// --- Composite Tool Handlers ---
+
+// EnrichedRecipe wraps a Recipe with resolved item names
+type EnrichedRecipe struct {
+	gw2api.Recipe
+	OutputItemName  string         `json:"output_item_name"`
+	IngredientNames map[int]string `json:"ingredient_names"`
+}
+
+// ItemRecipeResult is the response for get_item_recipe_by_name
+type ItemRecipeResult struct {
+	ItemName string           `json:"item_name"`
+	ItemID   int              `json:"item_id,omitempty"`
+	Recipes  []EnrichedRecipe `json:"recipes"`
+}
+
+// extractItemIDFromWikiResult extracts and parses the item ID from a wiki search result's infobox
+func extractItemIDFromWikiResult(result wiki.SearchResult) (int, error) {
+	idStr, ok := result.Infobox["id"]
+	if !ok {
+		return 0, fmt.Errorf("no item ID found in wiki result for %q", result.Title)
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid item ID %q in wiki result for %q: %w", idStr, result.Title, err)
+	}
+	return id, nil
+}
+
+// extractRecipeIDsFromWikiResult extracts and parses recipe IDs from a wiki search result
+func extractRecipeIDsFromWikiResult(result wiki.SearchResult) ([]int, error) {
+	var ids []int
+	for _, recipe := range result.Recipes {
+		idStr, ok := recipe["id"]
+		if !ok {
+			continue
+		}
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// handleGetItemByName handles item lookup by name via wiki search
+func (s *MCPServer) handleGetItemByName(ctx context.Context, _ *mcp.CallToolRequest, args GetItemByNameArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name == "" {
+		return errResult("name parameter is required")
+	}
+
+	s.logger.Debug("Item by name request", "name", args.Name)
+
+	// Search wiki for the item
+	results, err := s.wiki.Search(ctx, args.Name, 1)
+	if err != nil {
+		return errResult(fmt.Sprintf("Wiki search failed: %v", err))
+	}
+	if len(results.Results) == 0 {
+		return errResult(fmt.Sprintf("No wiki results found for %q", args.Name))
+	}
+
+	// Extract item ID from infobox
+	id, err := extractItemIDFromWikiResult(results.Results[0])
+	if err != nil {
+		return errResult(err.Error())
+	}
+
+	// Fetch full item details
+	items, err := s.gw2API.GetItems(ctx, []int{id})
+	if err != nil {
+		return errResult(fmt.Sprintf("Failed to get item details: %v", err))
+	}
+
+	item, ok := items[id]
+	if !ok {
+		return errResult(fmt.Sprintf("Item ID %d not found in API response", id))
+	}
+
+	return jsonResult(item)
+}
+
+// handleGetItemRecipeByName handles recipe lookup by item name via wiki search
+func (s *MCPServer) handleGetItemRecipeByName(ctx context.Context, _ *mcp.CallToolRequest, args GetItemRecipeByNameArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name == "" {
+		return errResult("name parameter is required")
+	}
+
+	s.logger.Debug("Item recipe by name request", "name", args.Name)
+
+	// Search wiki for the item
+	results, err := s.wiki.Search(ctx, args.Name, 1)
+	if err != nil {
+		return errResult(fmt.Sprintf("Wiki search failed: %v", err))
+	}
+	if len(results.Results) == 0 {
+		return errResult(fmt.Sprintf("No wiki results found for %q", args.Name))
+	}
+
+	wikiResult := results.Results[0]
+
+	// Try to get recipe IDs from wiki result
+	recipeIDs, _ := extractRecipeIDsFromWikiResult(wikiResult)
+
+	// If no wiki recipes, try fallback via API using item ID
+	itemID := 0
+	if len(recipeIDs) == 0 {
+		id, err := extractItemIDFromWikiResult(wikiResult)
+		if err != nil {
+			return errResult(fmt.Sprintf("No recipes found in wiki and %v", err))
+		}
+		itemID = id
+
+		apiRecipeIDs, err := s.gw2API.SearchRecipes(ctx, 0, itemID)
+		if err != nil {
+			return errResult(fmt.Sprintf("Failed to search recipes by output item: %v", err))
+		}
+		if len(apiRecipeIDs) == 0 {
+			return errResult(fmt.Sprintf("No recipes found for %q (item ID %d)", args.Name, itemID))
+		}
+		recipeIDs = apiRecipeIDs
+	} else if id, err := extractItemIDFromWikiResult(wikiResult); err == nil {
+		itemID = id
+	}
+
+	// Fetch full recipe details
+	recipes, err := s.gw2API.GetRecipes(ctx, recipeIDs)
+	if err != nil {
+		return errResult(fmt.Sprintf("Failed to get recipe details: %v", err))
+	}
+
+	// Collect all item IDs for name resolution
+	itemIDSet := make(map[int]bool)
+	for _, r := range recipes {
+		itemIDSet[r.OutputItemID] = true
+		for _, ing := range r.Ingredients {
+			itemIDSet[ing.ItemID] = true
+		}
+	}
+	allItemIDs := make([]int, 0, len(itemIDSet))
+	for id := range itemIDSet {
+		allItemIDs = append(allItemIDs, id)
+	}
+
+	// Resolve item names
+	itemMap, err := s.gw2API.GetItems(ctx, allItemIDs)
+	if err != nil {
+		s.logger.Warn("Failed to resolve item names for recipes", "error", err)
+		itemMap = make(map[int]gw2api.Item)
+	}
+
+	// Build enriched recipes
+	enriched := make([]EnrichedRecipe, len(recipes))
+	for i, r := range recipes {
+		ingNames := make(map[int]string)
+		for _, ing := range r.Ingredients {
+			if item, ok := itemMap[ing.ItemID]; ok {
+				ingNames[ing.ItemID] = item.Name
+			}
+		}
+		outputName := ""
+		if item, ok := itemMap[r.OutputItemID]; ok {
+			outputName = item.Name
+		}
+		enriched[i] = EnrichedRecipe{
+			Recipe:          r,
+			OutputItemName:  outputName,
+			IngredientNames: ingNames,
+		}
+	}
+
+	result := ItemRecipeResult{
+		ItemName: wikiResult.Title,
+		ItemID:   itemID,
+		Recipes:  enriched,
+	}
+
+	return jsonResult(result)
+}
+
+// handleGetTPPriceByName handles trading post price lookup by item name via wiki search
+func (s *MCPServer) handleGetTPPriceByName(ctx context.Context, _ *mcp.CallToolRequest, args GetTPPriceByNameArgs) (*mcp.CallToolResult, any, error) {
+	if args.Name == "" {
+		return errResult("name parameter is required")
+	}
+
+	s.logger.Debug("TP price by name request", "name", args.Name)
+
+	// Search wiki for the item
+	results, err := s.wiki.Search(ctx, args.Name, 1)
+	if err != nil {
+		return errResult(fmt.Sprintf("Wiki search failed: %v", err))
+	}
+	if len(results.Results) == 0 {
+		return errResult(fmt.Sprintf("No wiki results found for %q", args.Name))
+	}
+
+	// Extract item ID from infobox
+	id, err := extractItemIDFromWikiResult(results.Results[0])
+	if err != nil {
+		return errResult(err.Error())
+	}
+
+	// Fetch trading post prices
+	prices, err := s.gw2API.GetPrices(ctx, []int{id})
+	if err != nil {
+		return errResult(fmt.Sprintf("Failed to get trading post prices: %v", err))
+	}
+	if len(prices) == 0 {
+		return errResult(fmt.Sprintf("No trading post data found for item ID %d", id))
+	}
+
+	return jsonResult(prices[0])
 }
 
 // handleCurrencyListResource handles the currency list resource

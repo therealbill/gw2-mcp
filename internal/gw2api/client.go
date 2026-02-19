@@ -54,14 +54,21 @@ type WalletInfo struct {
 	Total      int              `json:"total_currencies"`
 }
 
-// Item represents basic item metadata from /v2/items
+// Item represents item metadata from /v2/items
 type Item struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Rarity string `json:"rarity"`
-	Level  int    `json:"level"`
-	Icon   string `json:"icon"`
+	ID           int             `json:"id"`
+	Name         string          `json:"name"`
+	Type         string          `json:"type"`
+	Rarity       string          `json:"rarity"`
+	Level        int             `json:"level"`
+	Icon         string          `json:"icon"`
+	ChatLink     string          `json:"chat_link"`
+	Description  string          `json:"description,omitempty"`
+	VendorValue  int             `json:"vendor_value"`
+	Flags        []string        `json:"flags,omitempty"`
+	GameTypes    []string        `json:"game_types,omitempty"`
+	Restrictions []string        `json:"restrictions,omitempty"`
+	Details      json.RawMessage `json:"details,omitempty"`
 }
 
 // FormatCoins converts copper coins to a human-readable string (e.g., "1g 50s 35c")
@@ -1145,13 +1152,17 @@ func (c *Client) GetAccount(ctx context.Context) (*AccountInfo, error) {
 
 // BankSlot represents a single bank vault slot
 type BankSlot struct {
-	ID        int    `json:"id"`
-	Count     int    `json:"count"`
-	Charges   int    `json:"charges,omitempty"`
-	Skin      int    `json:"skin,omitempty"`
-	Binding   string `json:"binding,omitempty"`
-	BoundTo   string `json:"bound_to,omitempty"`
-	ItemName  string `json:"item_name,omitempty"`
+	ID        int             `json:"id"`
+	Count     int             `json:"count"`
+	Charges   int             `json:"charges,omitempty"`
+	Skin      int             `json:"skin,omitempty"`
+	Binding   string          `json:"binding,omitempty"`
+	BoundTo   string          `json:"bound_to,omitempty"`
+	Upgrades  []int           `json:"upgrades,omitempty"`
+	Infusions []int           `json:"infusions,omitempty"`
+	Dyes      []int           `json:"dyes,omitempty"`
+	Stats     json.RawMessage `json:"stats,omitempty"`
+	ItemName  string          `json:"item_name,omitempty"`
 }
 
 // BankInfo represents bank vault contents
@@ -1273,9 +1284,17 @@ func (c *Client) GetMaterials(ctx context.Context) (*MaterialStorage, error) {
 
 // SharedSlot represents a shared inventory slot
 type SharedSlot struct {
-	ID       int    `json:"id"`
-	Count    int    `json:"count"`
-	ItemName string `json:"item_name,omitempty"`
+	ID        int             `json:"id"`
+	Count     int             `json:"count"`
+	Charges   int             `json:"charges,omitempty"`
+	Skin      int             `json:"skin,omitempty"`
+	Binding   string          `json:"binding,omitempty"`
+	BoundTo   string          `json:"bound_to,omitempty"`
+	Upgrades  []int           `json:"upgrades,omitempty"`
+	Infusions []int           `json:"infusions,omitempty"`
+	Dyes      []int           `json:"dyes,omitempty"`
+	Stats     json.RawMessage `json:"stats,omitempty"`
+	ItemName  string          `json:"item_name,omitempty"`
 }
 
 // InventoryInfo represents shared inventory contents
@@ -1360,18 +1379,34 @@ func (c *Client) GetCharacters(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// CraftingDiscipline represents a character's crafting discipline progress
+type CraftingDiscipline struct {
+	Discipline string `json:"discipline"`
+	Rating     int    `json:"rating"`
+	Active     bool   `json:"active"`
+}
+
 // CharacterInfo represents detailed character information
 type CharacterInfo struct {
-	Name        string          `json:"name"`
-	Race        string          `json:"race"`
-	Gender      string          `json:"gender"`
-	Profession  string          `json:"profession"`
-	Level       int             `json:"level"`
-	Age         int             `json:"age"`
-	Created     string          `json:"created"`
-	Deaths      int             `json:"deaths"`
-	Title       int             `json:"title,omitempty"`
-	Guild       string          `json:"guild,omitempty"`
+	Name            string               `json:"name"`
+	Race            string               `json:"race"`
+	Gender          string               `json:"gender"`
+	Profession      string               `json:"profession"`
+	Level           int                  `json:"level"`
+	Age             int                  `json:"age"`
+	Created         string               `json:"created"`
+	Deaths          int                  `json:"deaths"`
+	Title           int                  `json:"title,omitempty"`
+	Guild           string               `json:"guild,omitempty"`
+	Crafting        []CraftingDiscipline `json:"crafting,omitempty"`
+	Backstory       []string             `json:"backstory,omitempty"`
+	Equipment       json.RawMessage      `json:"equipment,omitempty"`
+	Skills          json.RawMessage      `json:"skills,omitempty"`
+	Specializations json.RawMessage      `json:"specializations,omitempty"`
+	Training        json.RawMessage      `json:"training,omitempty"`
+	BuildTabs       json.RawMessage      `json:"build_tabs,omitempty"`
+	EquipmentTabs   json.RawMessage      `json:"equipment_tabs,omitempty"`
+	Flags           []string             `json:"flags,omitempty"`
 }
 
 // GetCharacter retrieves detailed info for a specific character
@@ -1612,10 +1647,15 @@ func (c *Client) GetWizardsVaultListings(ctx context.Context) (json.RawMessage, 
 
 // Skin represents skin metadata from /v2/skins
 type Skin struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Icon  string `json:"icon"`
+	ID           int             `json:"id"`
+	Name         string          `json:"name"`
+	Type         string          `json:"type"`
+	Icon         string          `json:"icon"`
+	Rarity       string          `json:"rarity,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	Flags        []string        `json:"flags,omitempty"`
+	Restrictions []string        `json:"restrictions,omitempty"`
+	Details      json.RawMessage `json:"details,omitempty"`
 }
 
 // GetSkins retrieves skin metadata for the given IDs
@@ -1649,15 +1689,25 @@ func (c *Client) GetSkins(ctx context.Context, ids []int) ([]Skin, error) {
 	return results, nil
 }
 
+// GuildIngredient represents a guild upgrade ingredient in a recipe
+type GuildIngredient struct {
+	UpgradeID string `json:"upgrade_id"`
+	Count     int    `json:"count"`
+}
+
 // Recipe represents recipe data from /v2/recipes
 type Recipe struct {
-	ID              int              `json:"id"`
-	Type            string           `json:"type"`
-	OutputItemID    int              `json:"output_item_id"`
-	OutputItemCount int              `json:"output_item_count"`
-	Disciplines     []string         `json:"disciplines"`
-	MinRating       int              `json:"min_rating"`
-	Ingredients     []RecipeIngredient `json:"ingredients"`
+	ID               int                `json:"id"`
+	Type             string             `json:"type"`
+	OutputItemID     int                `json:"output_item_id"`
+	OutputItemCount  int                `json:"output_item_count"`
+	Disciplines      []string           `json:"disciplines"`
+	MinRating        int                `json:"min_rating"`
+	TimeToCraftMs    int                `json:"time_to_craft_ms"`
+	Ingredients      []RecipeIngredient `json:"ingredients"`
+	GuildIngredients []GuildIngredient  `json:"guild_ingredients,omitempty"`
+	Flags            []string           `json:"flags,omitempty"`
+	ChatLink         string             `json:"chat_link"`
 }
 
 // RecipeIngredient represents an ingredient in a recipe
@@ -1729,14 +1779,42 @@ func (c *Client) SearchRecipes(ctx context.Context, input, output int) ([]int, e
 	return ids, nil
 }
 
+// AchievementTier represents a tier of an achievement
+type AchievementTier struct {
+	Count  int `json:"count"`
+	Points int `json:"points"`
+}
+
+// AchievementReward represents a reward for completing an achievement
+type AchievementReward struct {
+	Type   string `json:"type"`
+	ID     int    `json:"id,omitempty"`
+	Count  int    `json:"count,omitempty"`
+	Region string `json:"region,omitempty"`
+}
+
+// AchievementBit represents a bit (sub-objective) of an achievement
+type AchievementBit struct {
+	Type string `json:"type"`
+	ID   int    `json:"id,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
 // Achievement represents achievement data from /v2/achievements
 type Achievement struct {
-	ID          int      `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Requirement string   `json:"requirement"`
-	Type        string   `json:"type"`
-	Flags       []string `json:"flags"`
+	ID            int                 `json:"id"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	Requirement   string              `json:"requirement"`
+	Type          string              `json:"type"`
+	Flags         []string            `json:"flags"`
+	Icon          string              `json:"icon,omitempty"`
+	LockedText    string              `json:"locked_text,omitempty"`
+	PointCap      int                 `json:"point_cap,omitempty"`
+	Tiers         []AchievementTier   `json:"tiers,omitempty"`
+	Prerequisites []int               `json:"prerequisites,omitempty"`
+	Rewards       []AchievementReward `json:"rewards,omitempty"`
+	Bits          []AchievementBit    `json:"bits,omitempty"`
 }
 
 // GetAchievements retrieves achievement data for the given IDs
@@ -1803,15 +1881,31 @@ func (c *Client) GetDailyAchievements(ctx context.Context) (*DailyAchievements, 
 
 // --- Phase 8: Guild Tools ---
 
+// GuildEmblemLayer represents a background or foreground layer of a guild emblem
+type GuildEmblemLayer struct {
+	ID     int   `json:"id"`
+	Colors []int `json:"colors"`
+}
+
+// GuildEmblem represents a guild's emblem
+type GuildEmblem struct {
+	Background GuildEmblemLayer `json:"background"`
+	Foreground GuildEmblemLayer `json:"foreground"`
+	Flags      []string         `json:"flags,omitempty"`
+}
+
 // GuildInfo represents public guild information
 type GuildInfo struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Tag      string `json:"tag"`
-	Level    int    `json:"level"`
-	MOTD     string `json:"motd,omitempty"`
-	Aetherium int   `json:"aetherium,omitempty"`
-	Favor    int    `json:"favor,omitempty"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Tag            string       `json:"tag"`
+	Level          int          `json:"level"`
+	MOTD           string       `json:"motd,omitempty"`
+	Aetherium      int          `json:"aetherium,omitempty"`
+	Favor          int          `json:"favor,omitempty"`
+	Emblem         *GuildEmblem `json:"emblem,omitempty"`
+	MemberCount    int          `json:"member_count,omitempty"`
+	MemberCapacity int          `json:"member_capacity,omitempty"`
 }
 
 // GetGuild retrieves public guild info
@@ -1886,10 +1980,25 @@ func (c *Client) GetGuildDetails(ctx context.Context, guildID, detailType string
 
 // --- Phase 9: Game Metadata ---
 
+// ColorComponent represents the material-specific color adjustments
+type ColorComponent struct {
+	Brightness int     `json:"brightness"`
+	Contrast   float64 `json:"contrast"`
+	Hue        int     `json:"hue"`
+	Saturation float64 `json:"saturation"`
+	Lightness  float64 `json:"lightness"`
+	RGB        [3]int  `json:"rgb"`
+}
+
 // Color represents a dye color from /v2/colors
 type Color struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID      int             `json:"id"`
+	Name    string          `json:"name"`
+	BaseRGB [3]int          `json:"base_rgb"`
+	Cloth   *ColorComponent `json:"cloth,omitempty"`
+	Leather *ColorComponent `json:"leather,omitempty"`
+	Metal   *ColorComponent `json:"metal,omitempty"`
+	Fur     *ColorComponent `json:"fur,omitempty"`
 }
 
 // GetColors retrieves color metadata for the given IDs
