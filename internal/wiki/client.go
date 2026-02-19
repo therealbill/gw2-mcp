@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -32,15 +33,17 @@ type Client struct {
 
 // SearchResult represents a single search result from the wiki
 type SearchResult struct {
-	Title     string            `json:"title"`
-	Snippet   string            `json:"snippet"`
-	Timestamp string            `json:"timestamp"`
-	URL       string            `json:"url"`
-	Extract   string            `json:"extract,omitempty"`
-	Infobox   map[string]string `json:"infobox,omitempty"`
-	PageID    int               `json:"pageid"`
-	Size      int               `json:"size"`
-	WordCount int               `json:"wordcount"`
+	Title      string              `json:"title"`
+	Snippet    string              `json:"snippet"`
+	Timestamp  string              `json:"timestamp"`
+	URL        string              `json:"url"`
+	Extract    string              `json:"extract,omitempty"`
+	Infobox    map[string]string   `json:"infobox,omitempty"`
+	InfoboxType string             `json:"infobox_type,omitempty"`
+	Recipes    []map[string]string `json:"recipes,omitempty"`
+	PageID     int                 `json:"pageid"`
+	Size       int                 `json:"size"`
+	WordCount  int                 `json:"wordcount"`
 }
 
 // SearchResponse represents the complete search response
@@ -92,8 +95,16 @@ type PageContentResponse struct {
 
 // pageDetails holds the cached extract and infobox for a wiki page
 type pageDetails struct {
-	Extract string            `json:"extract"`
-	Infobox map[string]string `json:"infobox,omitempty"`
+	Extract     string              `json:"extract"`
+	Infobox     map[string]string   `json:"infobox,omitempty"`
+	InfoboxType string              `json:"infobox_type,omitempty"`
+	Recipes     []map[string]string `json:"recipes,omitempty"`
+}
+
+// infoboxResult holds the parsed infobox type and field values
+type infoboxResult struct {
+	Type   string
+	Fields map[string]string
 }
 
 // NewClient creates a new wiki client
@@ -136,6 +147,8 @@ func (c *Client) Search(ctx context.Context, query string, limit int) (*SearchRe
 		} else {
 			searchResults[i].Extract = details.Extract
 			searchResults[i].Infobox = details.Infobox
+			searchResults[i].InfoboxType = details.InfoboxType
+			searchResults[i].Recipes = details.Recipes
 		}
 		searchResults[i].URL = fmt.Sprintf("%s/wiki/%s", wikiBaseURL, url.QueryEscape(searchResults[i].Title))
 	}
@@ -275,7 +288,11 @@ func (c *Client) getPageDetails(ctx context.Context, title string) (*pageDetails
 		details.Extract = page.Extract
 		if len(page.Revisions) > 0 {
 			wikitext := page.Revisions[0].Slots.Main.Content
-			details.Infobox = parseInfobox(wikitext)
+			if ib := parseInfobox(wikitext); ib != nil {
+				details.Infobox = ib.Fields
+				details.InfoboxType = ib.Type
+			}
+			details.Recipes = parseRecipes(wikitext)
 		}
 		break // Take the first (and should be only) page
 	}
@@ -288,12 +305,30 @@ func (c *Client) getPageDetails(ctx context.Context, title string) (*pageDetails
 	return details, nil
 }
 
+// Compiled regexes for cleanWikiMarkup
+var (
+	rePipedLink  = regexp.MustCompile(`\[\[[^\]|]+\|([^\]]+)\]\]`)
+	reSimpleLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+	reBold       = regexp.MustCompile(`'''(.+?)'''`)
+	reItalic     = regexp.MustCompile(`''(.+?)''`)
+)
+
+// cleanWikiMarkup strips common wiki markup from a string, leaving plain text.
+func cleanWikiMarkup(s string) string {
+	s = rePipedLink.ReplaceAllString(s, "$1")
+	s = reSimpleLink.ReplaceAllString(s, "$1")
+	s = reBold.ReplaceAllString(s, "$1")
+	s = reItalic.ReplaceAllString(s, "$1")
+	return strings.TrimSpace(s)
+}
+
 // parseInfobox extracts key-value pairs from the first infobox template in wikitext.
 // It handles nested {{...}} blocks and returns nil if no infobox is found.
-func parseInfobox(wikitext string) map[string]string {
+func parseInfobox(wikitext string) *infoboxResult {
 	// Find the start of an infobox template (case-insensitive search for "infobox")
 	lower := strings.ToLower(wikitext)
 	idx := strings.Index(lower, "{{")
+	var rawTemplateName string
 	for idx >= 0 {
 		rest := lower[idx+2:]
 		trimmed := strings.TrimSpace(rest)
@@ -304,6 +339,7 @@ func parseInfobox(wikitext string) map[string]string {
 		}
 		templateName = strings.TrimSpace(templateName)
 		if strings.Contains(templateName, "infobox") {
+			rawTemplateName = templateName
 			break
 		}
 		// Look for next {{
@@ -316,6 +352,11 @@ func parseInfobox(wikitext string) map[string]string {
 	if idx < 0 {
 		return nil
 	}
+
+	// Derive the infobox type from the template name
+	// e.g. "inventory infobox" → "inventory", "infobox item" → "item"
+	infoboxType := strings.ReplaceAll(rawTemplateName, "infobox", "")
+	infoboxType = strings.TrimSpace(infoboxType)
 
 	// Find the matching closing }} while tracking nesting depth
 	depth := 1
@@ -363,13 +404,100 @@ func parseInfobox(wikitext string) map[string]string {
 		if strings.HasPrefix(value, "{{") {
 			continue
 		}
-		result[key] = value
+		result[key] = cleanWikiMarkup(value)
 	}
 
 	if len(result) == 0 {
 		return nil
 	}
-	return result
+	return &infoboxResult{Type: infoboxType, Fields: result}
+}
+
+// parseRecipes extracts all {{Recipe}} templates from wikitext.
+// Each recipe is returned as a map of key-value pairs with cleaned markup.
+func parseRecipes(wikitext string) []map[string]string {
+	var recipes []map[string]string
+	lower := strings.ToLower(wikitext)
+	searchFrom := 0
+
+	for searchFrom < len(wikitext) {
+		// Find next {{Recipe (case-insensitive)
+		idx := strings.Index(lower[searchFrom:], "{{recipe")
+		if idx < 0 {
+			break
+		}
+		idx += searchFrom
+
+		// Verify it's actually "recipe" and not e.g. "recipe list" by checking the template name
+		rest := lower[idx+2:]
+		trimmed := strings.TrimSpace(rest)
+		templateName := trimmed
+		if pipeIdx := strings.IndexAny(templateName, "|\n"); pipeIdx >= 0 {
+			templateName = templateName[:pipeIdx]
+		}
+		templateName = strings.TrimSpace(templateName)
+
+		// Skip if it's not exactly "recipe" (e.g. "recipe list", "recipe box")
+		if templateName != "recipe" {
+			searchFrom = idx + 2
+			continue
+		}
+
+		// Find matching }}
+		depth := 1
+		pos := idx + 2
+		for pos < len(wikitext)-1 && depth > 0 {
+			if wikitext[pos] == '{' && wikitext[pos+1] == '{' {
+				depth++
+				pos += 2
+			} else if wikitext[pos] == '}' && wikitext[pos+1] == '}' {
+				depth--
+				if depth == 0 {
+					break
+				}
+				pos += 2
+			} else {
+				pos++
+			}
+		}
+
+		if depth != 0 {
+			break
+		}
+
+		block := wikitext[idx+2 : pos]
+		searchFrom = pos + 2
+
+		// Extract | key = value pairs
+		fields := make(map[string]string)
+		lines := strings.Split(block, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "|") {
+				continue
+			}
+			line = line[1:]
+			eqIdx := strings.Index(line, "=")
+			if eqIdx < 0 {
+				continue
+			}
+			key := strings.TrimSpace(line[:eqIdx])
+			value := strings.TrimSpace(line[eqIdx+1:])
+			if key == "" {
+				continue
+			}
+			if strings.HasPrefix(value, "{{") {
+				continue
+			}
+			fields[key] = cleanWikiMarkup(value)
+		}
+
+		if len(fields) > 0 {
+			recipes = append(recipes, fields)
+		}
+	}
+
+	return recipes
 }
 
 // cleanSnippet removes HTML tags and cleans up the snippet text

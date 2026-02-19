@@ -235,11 +235,182 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-func TestParseInfobox(t *testing.T) {
+func TestCleanWikiMarkup(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Piped link",
+			input:    "[[Dragonite Ingot|dragonite ingots]]",
+			expected: "dragonite ingots",
+		},
+		{
+			name:     "Simple link",
+			input:    "[[Dragonite Ingot]]",
+			expected: "Dragonite Ingot",
+		},
+		{
+			name:     "Bold text",
+			input:    "'''Eternity'''",
+			expected: "Eternity",
+		},
+		{
+			name:     "Italic text",
+			input:    "''italic text''",
+			expected: "italic text",
+		},
+		{
+			name:     "Mixed markup",
+			input:    "Use [[Mystic Forge|the forge]] with '''courage'''",
+			expected: "Use the forge with courage",
+		},
+		{
+			name:     "Plain text passthrough",
+			input:    "Just plain text",
+			expected: "Just plain text",
+		},
+		{
+			name:     "Multiple links",
+			input:    "[[Bolt]] and [[Sunrise]]",
+			expected: "Bolt and Sunrise",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cleanWikiMarkup(tt.input)
+			if result != tt.expected {
+				t.Errorf("cleanWikiMarkup(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseRecipes(t *testing.T) {
 	tests := []struct {
 		name     string
 		wikitext string
-		expected map[string]string
+		expected []map[string]string
+	}{
+		{
+			name:     "No recipes",
+			wikitext: "Just some regular wiki text.",
+			expected: nil,
+		},
+		{
+			name: "Single recipe",
+			wikitext: `{{Recipe
+| id = 2221
+| type = Bag
+| output = 18 Slot Silk Bag
+| discipline = Tailor
+| rating = 400
+| ingredient1 = [[Bolt of Silk|Bolts of Silk]]
+| count1 = 10
+}}`,
+			expected: []map[string]string{
+				{
+					"id":          "2221",
+					"type":        "Bag",
+					"output":      "18 Slot Silk Bag",
+					"discipline":  "Tailor",
+					"rating":      "400",
+					"ingredient1": "Bolts of Silk",
+					"count1":      "10",
+				},
+			},
+		},
+		{
+			name: "Multiple recipes",
+			wikitext: `{{Recipe
+| id = 1111
+| type = Sword
+| discipline = Weaponsmith
+| rating = 400
+}}
+{{Recipe
+| id = 2222
+| type = Sword
+| discipline = Huntsman
+| rating = 400
+}}`,
+			expected: []map[string]string{
+				{
+					"id":         "1111",
+					"type":       "Sword",
+					"discipline": "Weaponsmith",
+					"rating":     "400",
+				},
+				{
+					"id":         "2222",
+					"type":       "Sword",
+					"discipline": "Huntsman",
+					"rating":     "400",
+				},
+			},
+		},
+		{
+			name: "Recipe with nested templates skipped",
+			wikitext: `{{Recipe
+| id = 3333
+| type = Bag
+| icon = {{item icon|Bag}}
+| discipline = Tailor
+}}`,
+			expected: []map[string]string{
+				{
+					"id":         "3333",
+					"type":       "Bag",
+					"discipline": "Tailor",
+				},
+			},
+		},
+		{
+			name: "Recipe list template ignored",
+			wikitext: `{{Recipe list
+| id = 9999
+| type = Other
+}}`,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseRecipes(tt.wikitext)
+			if tt.expected == nil {
+				if len(result) != 0 {
+					t.Errorf("parseRecipes() = %v, want nil/empty", result)
+				}
+				return
+			}
+			if len(result) != len(tt.expected) {
+				t.Fatalf("parseRecipes() returned %d recipes, want %d", len(result), len(tt.expected))
+			}
+			for i, expectedRecipe := range tt.expected {
+				for k, v := range expectedRecipe {
+					if result[i][k] != v {
+						t.Errorf("parseRecipes()[%d][%q] = %q, want %q", i, k, result[i][k], v)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestParseInfobox(t *testing.T) {
+	tests := []struct {
+		name         string
+		wikitext     string
+		expectedType string
+		expected     map[string]string
 	}{
 		{
 			name:     "No infobox",
@@ -256,6 +427,7 @@ func TestParseInfobox(t *testing.T) {
 | type = Container
 }}
 Some text after`,
+			expectedType: "item",
 			expected: map[string]string{
 				"id":     "9566",
 				"name":   "18 Slot Silk Bag",
@@ -271,6 +443,7 @@ Some text after`,
 | icon = {{item icon|Cool Sword}}
 | rarity = Exotic
 }}`,
+			expectedType: "weapon",
 			expected: map[string]string{
 				"id":     "1234",
 				"name":   "Cool Sword",
@@ -284,6 +457,7 @@ Some text after`,
 | name = Miyani
 | level = 80
 }}`,
+			expectedType: "npc",
 			expected: map[string]string{
 				"name":  "Miyani",
 				"level": "80",
@@ -300,6 +474,7 @@ Some text after`,
 | name = Dragon Bash
 | type = Festival
 }}`,
+			expectedType: "event",
 			expected: map[string]string{
 				"name": "Dragon Bash",
 				"type": "Festival",
@@ -314,6 +489,7 @@ Some text after`,
 | value = 27
 | id = 9566
 }}`,
+			expectedType: "inventory",
 			expected: map[string]string{
 				"slots":       "18",
 				"description": "18 Slots",
@@ -332,9 +508,24 @@ Some text after`,
 | id = 9566
 | rarity = basic
 }}`,
+			expectedType: "inventory",
 			expected: map[string]string{
 				"id":     "9566",
 				"rarity": "basic",
+			},
+		},
+		{
+			name: "Infobox values with wiki links are cleaned",
+			wikitext: `{{Infobox weapon
+| id = 5678
+| name = [[Eternity]]
+| material = [[Dragonite Ingot|dragonite ingots]]
+}}`,
+			expectedType: "weapon",
+			expected: map[string]string{
+				"id":       "5678",
+				"name":     "Eternity",
+				"material": "dragonite ingots",
 			},
 		},
 	}
@@ -349,14 +540,17 @@ Some text after`,
 				return
 			}
 			if result == nil {
-				t.Fatalf("parseInfobox() = nil, want %v", tt.expected)
+				t.Fatalf("parseInfobox() = nil, want type=%q fields=%v", tt.expectedType, tt.expected)
 			}
-			if len(result) != len(tt.expected) {
-				t.Errorf("parseInfobox() returned %d keys, want %d. Got: %v", len(result), len(tt.expected), result)
+			if result.Type != tt.expectedType {
+				t.Errorf("parseInfobox().Type = %q, want %q", result.Type, tt.expectedType)
+			}
+			if len(result.Fields) != len(tt.expected) {
+				t.Errorf("parseInfobox() returned %d keys, want %d. Got: %v", len(result.Fields), len(tt.expected), result.Fields)
 			}
 			for k, v := range tt.expected {
-				if result[k] != v {
-					t.Errorf("parseInfobox()[%q] = %q, want %q", k, result[k], v)
+				if result.Fields[k] != v {
+					t.Errorf("parseInfobox().Fields[%q] = %q, want %q", k, result.Fields[k], v)
 				}
 			}
 		})
